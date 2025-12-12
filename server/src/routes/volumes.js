@@ -35,4 +35,21 @@ router.delete('/:name', async (req, res) => {
     }
 });
 
+// Create volume
+router.post('/', async (req, res) => {
+    try {
+        const { name, driver, driverOpts, labels } = req.body;
+        const options = {
+            Name: name,
+            Driver: driver || 'local',
+            DriverOpts: driverOpts, // e.g., { type: 'none', device: '/home/user/data', o: 'bind' }
+            Labels: labels
+        };
+        const volume = await docker.createVolume(options);
+        res.json(volume);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 module.exports = router;

@@ -50,7 +50,7 @@ router.post('/create', async (req, res) => {
                 Privileged: resources?.privileged || false,
                 ShmSize: resources?.shmSize ? parseInt(resources.shmSize) * 1024 * 1024 : undefined, // MB to bytes
                 Memory: resources?.memory ? parseInt(resources.memory) * 1024 * 1024 : undefined, // MB to bytes
-                NanoCpus: resources?.nanoCpus ? parseInt(resources.nanoCpus) * 1000000000 : undefined,
+                NanoCpus: resources?.nanoCpus ? parseFloat(resources.nanoCpus) * 1000000000 : undefined,
                 Devices: resources?.devices || [], // [{ PathOnHost, PathInContainer, CgroupPermissions }]
                 DeviceRequests: resources?.gpu ? [{
                     Driver: '',
@@ -119,10 +119,11 @@ router.post('/create', async (req, res) => {
             ...config
         });
 
-        // Auto start? The user didn't explicitly ask for auto-start, but "create" implies existence.
-        // Usually creation routes just create. The user can start it.
+        if (req.body.autostart) {
+            await container.start();
+        }
 
-        res.json({ message: 'Container created', id: container.id });
+        res.json({ message: 'Container created' + (req.body.autostart ? ' and started' : ''), id: container.id });
     } catch (error) {
         console.error('Create error:', error);
         res.status(500).json({ error: error.message });
@@ -277,6 +278,69 @@ router.post('/:id/network/disconnect', async (req, res) => {
         await network.disconnect({ Container: req.params.id });
         res.json({ message: 'Network disconnected' });
     } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Re-create container (Update)
+router.post('/:id/recreate', async (req, res) => {
+    try {
+        const container = docker.getContainer(req.params.id);
+        const info = await container.inspect();
+        const oldName = info.Name.replace(/^\//, '');
+        const backupName = `${oldName}_bak_${Date.now()}`;
+
+        // 1. Rename old container to backup
+        await container.rename({ name: backupName });
+
+        // 2. Stop if running
+        if (info.State.Running) {
+            await container.stop();
+        }
+
+        // 3. Create new container with same config
+        // Using info.Config.Image guarantees we use the tag (e.g. nginx:latest) 
+        // so it uses the newly pulled image with that tag.
+        const options = {
+            name: oldName,
+            Image: info.Config.Image,
+            Cmd: info.Config.Cmd,
+            Entrypoint: info.Config.Entrypoint,
+            Env: info.Config.Env,
+            WorkingDir: info.Config.WorkingDir,
+            User: info.Config.User,
+            ExposedPorts: info.Config.ExposedPorts,
+            HostConfig: info.HostConfig,
+            NetworkingConfig: info.NetworkSettings.Networks // Use NetworkSettings for create? No, usually NetworkingConfig
+        };
+
+        // Fix for NetworkingConfig: inspect returns NetworkSettings, create expects NetworkingConfig
+        if (info.NetworkSettings && info.NetworkSettings.Networks) {
+            options.NetworkingConfig = { EndpointsConfig: info.NetworkSettings.Networks };
+        }
+
+        try {
+            const newContainer = await docker.createContainer(options);
+            await newContainer.start();
+
+            // Success: Remove backup
+            // We need to re-fetch the backup container object because name changed
+            const backupContainer = docker.getContainer(container.id);
+            await backupContainer.remove({ force: true });
+
+            res.json({ message: 'Container recreated successfully', id: newContainer.id });
+        } catch (createError) {
+            console.error('Recreation failed, rolling back:', createError);
+            // Rollback: Rename backup back to oldName and start if it was running
+            const backupContainer = docker.getContainer(container.id);
+            await backupContainer.rename({ name: oldName });
+            if (info.State.Running) {
+                await backupContainer.start();
+            }
+            throw new Error(`Failed to recreate: ${createError.message}. Rolled back.`);
+        }
+    } catch (error) {
+        console.error('Recreate error:', error);
         res.status(500).json({ error: error.message });
     }
 });

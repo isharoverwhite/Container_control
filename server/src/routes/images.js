@@ -13,42 +13,58 @@ router.get('/', async (req, res) => {
     }
 });
 
-// Pull image
+// Get currently pulling images
+router.get('/pulling', (req, res) => {
+    res.json(Array.from(global.pullingImages));
+});
+
+// Pull image (Background)
 router.post('/pull', async (req, res) => {
     const { image } = req.body;
     if (!image) return res.status(400).json({ error: 'Image name required' });
 
+    if (global.pullingImages.has(image)) {
+        return res.json({ message: 'Pull already in progress', image });
+    }
+
     try {
-        // This stream needs handling. For simplicity in this step, we just start it.
-        // In a real app, we'd pipe this to a socket or return a stream.
-        // Here we'll wait for it to finish (blocking) or return "Pulling started".
-        // Let's return a stream-like response or use socket.io later.
-        // For now: Promisify stream to wait? No, that might time out HTTP.
-        // Efficient way: Trigger pull, user tracks via events/logs?
+        global.pullingImages.add(image);
+        global.io.emit('docker_pull_start', { image });
 
-        // Simple implementation:
-        docker.pull(image, (err, stream) => {
-            if (err) return res.status(500).json({ error: err.message });
+        const options = {
+            ...(global.dockerAuth ? { authconfig: global.dockerAuth } : {})
+        };
 
-            // We pipe the stream to the response directly
-            // This allows the client to read the progress
-            res.setHeader('Content-Type', 'application/json');
+        // Respond immediately
+        res.json({ message: 'Pull started', image });
+
+        docker.pull(image, options, (err, stream) => {
+            if (err) {
+                global.pullingImages.delete(image);
+                global.io.emit('docker_pull_error', { image, error: err.message });
+                console.error('Pull init error', err);
+                return;
+            }
+
             docker.modem.followProgress(stream, onFinished, onProgress);
 
             function onFinished(err, output) {
+                global.pullingImages.delete(image);
                 if (err) {
-                    // If headers sent, we can't send status 500.
-                    // Usually followProgress handles the end.
-                    console.error('Pull finish error', err);
+                    global.io.emit('docker_pull_error', { image, error: err.message });
+                    console.error('Pull finish error:', err);
+                } else {
+                    global.io.emit('docker_pull_complete', { image, output });
                 }
             }
 
             function onProgress(event) {
-                res.write(JSON.stringify(event) + '\n');
+                global.io.emit('docker_pull_progress', { image, event });
             }
         });
 
     } catch (error) {
+        global.pullingImages.delete(image);
         res.status(500).json({ error: error.message });
     }
 });

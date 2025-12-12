@@ -50,11 +50,106 @@ class _ImagesScreenState extends State<ImagesScreen> {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (context) => const DockerHubSearchScreen()),
-    ).then((result) {
-      if (result == true) {
-        _refreshImages();
-      }
+    ).then((_) {
+      _refreshImages();
     });
+  }
+
+  Future<void> _showLoginDialog() async {
+    final usernameController = TextEditingController();
+    final passwordController = TextEditingController();
+    final serverController = TextEditingController(
+      text: 'https://index.docker.io/v1/',
+    );
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          title: const Text(
+            'Docker Login',
+            style: TextStyle(color: Colors.white),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: usernameController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Username',
+                    labelStyle: TextStyle(color: Colors.white54),
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.white10),
+                    ),
+                  ),
+                ),
+                TextField(
+                  controller: passwordController,
+                  obscureText: true,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Password',
+                    labelStyle: TextStyle(color: Colors.white54),
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.white10),
+                    ),
+                  ),
+                ),
+                TextField(
+                  controller: serverController,
+                  style: const TextStyle(color: Colors.white),
+                  decoration: const InputDecoration(
+                    labelText: 'Registry Server',
+                    labelStyle: TextStyle(color: Colors.white54),
+                    enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: Colors.white10),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              child: const Text('Cancel'),
+              onPressed: () => Navigator.of(dialogContext).pop(),
+            ),
+            TextButton(
+              child: const Text(
+                'Login',
+                style: TextStyle(color: Color(0xFF00E5FF)),
+              ),
+              onPressed: () async {
+                Navigator.of(dialogContext).pop();
+                try {
+                  await _apiService.login(
+                    usernameController.text,
+                    passwordController.text,
+                    server: serverController.text.isNotEmpty
+                        ? serverController.text
+                        : null,
+                  );
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Login successful')),
+                    );
+                  }
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(
+                      context,
+                    ).showSnackBar(SnackBar(content: Text('Error: $e')));
+                  }
+                }
+              },
+            ),
+          ],
+        );
+      },
+    );
   }
 
   @override
@@ -63,6 +158,11 @@ class _ImagesScreenState extends State<ImagesScreen> {
       showHeader: true,
       title: 'Images',
       actions: [
+        IconButton(
+          icon: const Icon(Icons.login, color: Colors.white70),
+          onPressed: _showLoginDialog,
+          tooltip: 'Login to Registry',
+        ),
         IconButton(
           icon: const Icon(Icons.add, color: Color(0xFF00E5FF)),
           onPressed: _openDockerHubSearch,
@@ -183,7 +283,7 @@ class _ImagesScreenState extends State<ImagesScreen> {
                             shape: BoxShape.circle,
                           ),
                           child: const Icon(
-                            Icons.layers,
+                            Icons.inventory_2,
                             color: Colors.blueAccent,
                           ),
                         ),

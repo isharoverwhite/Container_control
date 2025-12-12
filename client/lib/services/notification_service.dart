@@ -47,11 +47,12 @@ class NotificationService {
           onlyAlertOnce: true,
         );
 
-    // Linux support for progress bars might be limited depending on distro/implementation
-    // but we send the update anyway.
+    final LinuxNotificationDetails linuxPlatformChannelSpecifics =
+        const LinuxNotificationDetails();
 
     final NotificationDetails platformChannelSpecifics = NotificationDetails(
       android: androidPlatformChannelSpecifics,
+      linux: linuxPlatformChannelSpecifics,
     );
 
     await flutterLocalNotificationsPlugin.show(
@@ -73,8 +74,12 @@ class NotificationService {
           showProgress: false,
         );
 
+    final LinuxNotificationDetails linuxPlatformChannelSpecifics =
+        const LinuxNotificationDetails();
+
     final NotificationDetails platformChannelSpecifics = NotificationDetails(
       android: androidPlatformChannelSpecifics,
+      linux: linuxPlatformChannelSpecifics,
     );
 
     await flutterLocalNotificationsPlugin.show(

@@ -42,12 +42,15 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
   final TextEditingController _dnsPriController = TextEditingController();
   final TextEditingController _dnsSecController = TextEditingController();
   List<dynamic> _availableNetworks = [];
+  List<dynamic> _availableVolumes = [];
+  Map<String, dynamic>? _systemInfo;
 
   // Resources
   double _cpuLimit = 0; // 0 = unlimited
   double _memLimit = 0; // MB
   bool _enableGpu = false;
   bool _privileged = false;
+  bool _autostart = true;
   String _restartPolicy = 'no';
 
   @override
@@ -58,14 +61,23 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
       _imageController.text =
           (widget.initialImage!['RepoTags'] as List?)?.first ?? '';
     }
-    _fetchNetworks();
+    _fetchData();
   }
 
-  Future<void> _fetchNetworks() async {
+  Future<void> _fetchData() async {
     try {
       final nets = await _apiService.getNetworks();
+      final vols = await _apiService.getVolumes();
+      final info = await _apiService.getSystemInfo();
       setState(() {
         _availableNetworks = nets;
+        // vols can be List or Map depending on docker version/api result wrapper
+        if (vols is List) {
+          _availableVolumes = vols;
+        } else if (vols is Map && vols['Volumes'] != null) {
+          _availableVolumes = vols['Volumes'];
+        }
+        _systemInfo = info;
       });
     } catch (e) {
       print(e);
@@ -149,8 +161,23 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
           'nanoCpus': _cpuLimit > 0 ? _cpuLimit.toString() : null,
           'gpu': _enableGpu,
           'privileged': _privileged,
+          'devices': (_enableGpu && _systemInfo?['gpu']?['vendor'] == 'amd')
+              ? [
+                  {
+                    'PathOnHost': '/dev/kfd',
+                    'PathInContainer': '/dev/kfd',
+                    'CgroupPermissions': 'rwm',
+                  },
+                  {
+                    'PathOnHost': '/dev/dri',
+                    'PathInContainer': '/dev/dri',
+                    'CgroupPermissions': 'rwm',
+                  },
+                ]
+              : null,
         },
         'restartPolicy': _restartPolicy,
+        'autostart': _autostart,
       };
 
       await _apiService.createContainer(config);
@@ -248,6 +275,18 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
           ].map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
           onChanged: (v) => setState(() => _restartPolicy = v!),
         ),
+        const SizedBox(height: 16),
+        CheckboxListTile(
+          title: const Text(
+            'Auto-start after creation',
+            style: TextStyle(color: Colors.white),
+          ),
+          value: _autostart,
+          onChanged: (v) => setState(() => _autostart = v!),
+          activeColor: const Color(0xFF00E5FF),
+          checkColor: Colors.black,
+          contentPadding: EdgeInsets.zero,
+        ),
       ],
     );
   }
@@ -315,6 +354,11 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
         ..._volumes.asMap().entries.map((entry) {
           final index = entry.key;
           final vol = entry.value;
+
+          final volumeNames = _availableVolumes
+              .map((v) => v['Name'].toString())
+              .toList();
+
           return Container(
             margin: const EdgeInsets.only(bottom: 8),
             padding: const EdgeInsets.all(8),
@@ -335,7 +379,13 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
                               (e) => DropdownMenuItem(value: e, child: Text(e)),
                             )
                             .toList(),
-                        onChanged: (v) => setState(() => vol['type'] = v!),
+                        onChanged: (v) {
+                          setState(() {
+                            vol['type'] = v!;
+                            vol['source'] =
+                                ''; // Reset source when switching type
+                          });
+                        },
                         decoration: const InputDecoration(labelText: 'Type'),
                       ),
                     ),
@@ -345,15 +395,37 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
                     ),
                   ],
                 ),
-                TextFormField(
-                  initialValue: vol['source'],
-                  onChanged: (v) => vol['source'] = v,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
-                    labelText: 'Source (Host Path / Vol Name)',
-                    labelStyle: TextStyle(color: Colors.white54),
+                if (vol['type'] == 'volume')
+                  DropdownButtonFormField<String>(
+                    value: volumeNames.contains(vol['source'])
+                        ? vol['source']
+                        : null,
+                    dropdownColor: const Color(0xFF1E1E1E),
+                    items: volumeNames
+                        .map(
+                          (e) => DropdownMenuItem(
+                            value: e,
+                            child: Text(e, overflow: TextOverflow.ellipsis),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (v) => setState(() => vol['source'] = v!),
+                    decoration: const InputDecoration(
+                      labelText: 'Source (Volume)',
+                      labelStyle: TextStyle(color: Colors.white54),
+                    ),
+                    isExpanded: true,
+                  )
+                else
+                  TextFormField(
+                    initialValue: vol['source'],
+                    onChanged: (v) => vol['source'] = v,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      labelText: 'Source (Host Path)',
+                      labelStyle: TextStyle(color: Colors.white54),
+                    ),
                   ),
-                ),
                 TextFormField(
                   initialValue: vol['target'],
                   onChanged: (v) => vol['target'] = v,
@@ -503,6 +575,28 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
   }
 
   Widget _buildResourcesTab() {
+    double maxMem = 4096;
+    int maxCpu = 8;
+    bool gpuSupported = false;
+    String gpuModel = 'Unknown';
+    String gpuVendor = 'none';
+
+    if (_systemInfo != null) {
+      // MemTotal is in bytes
+      final memBytes = _systemInfo!['MemTotal'] as int? ?? 0;
+      if (memBytes > 0) {
+        maxMem = memBytes / (1024 * 1024); // MB
+      }
+      maxCpu = _systemInfo!['NCPU'] as int? ?? 8;
+
+      final gpu = _systemInfo!['gpu'];
+      if (gpu != null) {
+        gpuSupported = gpu['supported'] ?? false;
+        gpuModel = gpu['model'] ?? 'Unknown';
+        gpuVendor = gpu['vendor'] ?? 'none';
+      }
+    }
+
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -518,24 +612,32 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
         ),
         CheckboxListTile(
           title: const Text(
-            'Enable GPU (Nvidia)',
+            'Enable GPU',
             style: TextStyle(color: Colors.white),
           ),
+          subtitle: Text(
+            'Detected GPU on host machine: $gpuVendor - $gpuModel\n${gpuSupported ? "Supported" : "Not supported/Automatic assignment disabled"}',
+            style: TextStyle(
+              color: gpuSupported ? Colors.greenAccent : Colors.orangeAccent,
+            ),
+          ),
           value: _enableGpu,
-          onChanged: (v) => setState(() => _enableGpu = v!),
+          onChanged: gpuSupported
+              ? (v) => setState(() => _enableGpu = v!)
+              : null,
           activeColor: const Color(0xFF00E5FF),
           checkColor: Colors.black,
         ),
         const SizedBox(height: 16),
-        const Text(
-          'Memory Limit (MB) - 0 for unlimited',
-          style: TextStyle(color: Colors.white),
+        Text(
+          'Memory Limit (MB) - 0 for unlimited (Max: ${maxMem.toInt()} MB)',
+          style: const TextStyle(color: Colors.white),
         ),
         Slider(
-          value: _memLimit,
+          value: _memLimit > maxMem ? maxMem : _memLimit,
           min: 0,
-          max: 4096,
-          divisions: 64,
+          max: maxMem,
+          divisions: 100, // Roughly
           label: '${_memLimit.toInt()} MB',
           activeColor: const Color(0xFF00E5FF),
           onChanged: (v) => setState(() => _memLimit = v),
@@ -546,24 +648,23 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
         ),
 
         const SizedBox(height: 16),
-        const Text(
-          'CPU Limit (NanoCPUs) - 0 for unlimited',
-          style: TextStyle(color: Colors.white),
-        ),
-        const Text(
-          '1.0 CPU = 1,000,000,000',
-          style: TextStyle(color: Colors.white54, fontSize: 12),
+        Text(
+          'CPU Limit (Cores) - 0 for unlimited (Max: $maxCpu CPUs)',
+          style: const TextStyle(color: Colors.white),
         ),
         Slider(
-          value: _cpuLimit,
+          value: _cpuLimit > maxCpu ? maxCpu.toDouble() : _cpuLimit,
           min: 0,
-          max: 8,
-          divisions: 16,
-          label: _cpuLimit.toString(),
+          max: maxCpu.toDouble(),
+          divisions: maxCpu, // Integer steps
+          label: _cpuLimit.toInt().toString(),
           activeColor: const Color(0xFF00E5FF),
-          onChanged: (v) => setState(() => _cpuLimit = v),
+          onChanged: (v) => setState(() => _cpuLimit = v.roundToDouble()),
         ),
-        Text('$_cpuLimit CPUs', style: const TextStyle(color: Colors.white70)),
+        Text(
+          '${_cpuLimit.toInt()} CPUs',
+          style: const TextStyle(color: Colors.white70),
+        ),
       ],
     );
   }

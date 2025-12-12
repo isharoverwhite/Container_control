@@ -16,13 +16,48 @@ class DockerHubImageDetailScreen extends StatefulWidget {
 class _DockerHubImageDetailScreenState
     extends State<DockerHubImageDetailScreen> {
   final ApiService _apiService = ApiService();
-  final TextEditingController _tagController = TextEditingController(
-    text: 'latest',
-  );
+  String? _selectedTag;
+  List<String> _tags = [];
+  String _fullDescription = '';
+  bool _isLoadingDetails = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchDetails();
+  }
+
+  Future<void> _fetchDetails() async {
+    final repoName = widget.image['repo_name'];
+    try {
+      final repoDetails = await _apiService.getDockerHubRepository(repoName);
+      final tags = await _apiService.getDockerHubTags(repoName);
+
+      if (mounted) {
+        setState(() {
+          _fullDescription = repoDetails['full_description'] ?? '';
+          _tags = tags;
+          if (_tags.contains('latest')) {
+            _selectedTag = 'latest';
+          } else if (_tags.isNotEmpty) {
+            _selectedTag = _tags.first;
+          }
+          _isLoadingDetails = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingDetails = false;
+          _fullDescription = 'Failed to load details: $e';
+        });
+      }
+    }
+  }
 
   Future<void> _pullImage() async {
     final repoName = widget.image['repo_name'];
-    final tag = _tagController.text.isEmpty ? 'latest' : _tagController.text;
+    final tag = _selectedTag ?? 'latest';
     final fullImageName = '$repoName:$tag';
 
     // Start pull and handle stream
@@ -38,11 +73,6 @@ class _DockerHubImageDetailScreenState
           content: Text('Pulling $fullImageName... check notification bar'),
         ),
       );
-      // We can choose to stay on this screen or pop. The user asked to "click to images for show detail. Have download button".
-      // Likely they want to stay here or go back. Let's stay here and maybe show some progress or just rely on notification.
-      // User requirement: "show progress of download with percent on notification bar".
-      // So reliance on notification is correct. I will pop back to search or keep open?
-      // Usually "Download" just starts it. I'll keeping it open allows them to read more or go back manually.
 
       final stream = await _apiService.pullImage(fullImageName);
       int lastPercent = 0;
@@ -128,8 +158,10 @@ class _DockerHubImageDetailScreenState
   @override
   Widget build(BuildContext context) {
     final name = widget.image['repo_name'] ?? 'Unknown';
-    final desc =
-        widget.image['short_description'] ?? 'No description provided.';
+    // Use full description if available, else short
+    final desc = _fullDescription.isNotEmpty
+        ? _fullDescription
+        : widget.image['short_description'] ?? 'No description provided.';
     final stars = widget.image['star_count'] ?? 0;
     final isOfficial = widget.image['is_official'] == true;
     final pullCount = widget.image['pull_count'] ?? 0;
@@ -203,9 +235,59 @@ class _DockerHubImageDetailScreenState
               ],
             ),
             const SizedBox(height: 24),
+            // Tags Section First for better UX
+            const Text(
+              'Select Tag',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFF1E1E1E),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.white10),
+              ),
+              child: _isLoadingDetails
+                  ? const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(8.0),
+                        child: CircularProgressIndicator(),
+                      ),
+                    )
+                  : DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        value: _selectedTag,
+                        isExpanded: true,
+                        dropdownColor: const Color(0xFF1E1E1E),
+                        icon: const Icon(
+                          Icons.arrow_drop_down,
+                          color: Colors.white,
+                        ),
+                        hint: const Text(
+                          'Select a tag',
+                          style: TextStyle(color: Colors.white54),
+                        ),
+                        style: const TextStyle(color: Colors.white),
+                        items: _tags.map((String tag) {
+                          return DropdownMenuItem<String>(
+                            value: tag,
+                            child: Text(tag),
+                          );
+                        }).toList(),
+                        onChanged: (String? newValue) {
+                          setState(() {
+                            _selectedTag = newValue;
+                          });
+                        },
+                      ),
+                    ),
+            ),
+
+            const SizedBox(height: 24),
 
             const Text(
-              'Description',
+              'Overview',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 8),
@@ -217,35 +299,15 @@ class _DockerHubImageDetailScreenState
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.white10),
               ),
-              child: Text(
-                desc,
-                style: const TextStyle(color: Colors.white70, height: 1.5),
-              ),
-            ),
-
-            const SizedBox(height: 24),
-            const Text(
-              'Configuration',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1E1E1E),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.white10),
-              ),
-              child: TextField(
-                controller: _tagController,
-                style: const TextStyle(color: Colors.white),
-                decoration: const InputDecoration(
-                  labelText: 'Tag',
-                  labelStyle: TextStyle(color: Colors.white54),
-                  border: InputBorder.none,
-                  prefixIcon: Icon(Icons.label_outline, color: Colors.white54),
-                ),
-              ),
+              child: _isLoadingDetails
+                  ? const Center(child: CircularProgressIndicator())
+                  : Text(
+                      desc,
+                      style: const TextStyle(
+                        color: Colors.white70,
+                        height: 1.5,
+                      ),
+                    ),
             ),
 
             const SizedBox(height: 32),

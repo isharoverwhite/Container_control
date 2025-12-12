@@ -1,12 +1,19 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 
+import 'package:socket_io_client/socket_io_client.dart' as IO;
+
 class ApiService {
-  // Use 10.0.2.2 for Android emulator to access host localhost
-  // Or use local IP if running on device.
-  // For web/linux, localhost is fine.
-  // We can make this configurable.
   static const String baseUrl = 'http://localhost:3000/api';
+  static const String socketUrl = 'http://localhost:3000';
+  late IO.Socket socket;
+
+  ApiService() {
+    socket = IO.io(socketUrl, <String, dynamic>{
+      'transports': ['websocket'],
+      'autoConnect': true,
+    });
+  }
 
   Future<List<dynamic>> getContainers() async {
     print('GET $baseUrl/containers');
@@ -80,7 +87,7 @@ class ApiService {
     }
   }
 
-  Future<Stream<String>> pullImage(String image) async {
+  Future<void> pullImage(String image) async {
     print('POST $baseUrl/images/pull body={image: $image}');
     final request = http.Request('POST', Uri.parse('$baseUrl/images/pull'));
     request.body = json.encode({'image': image});
@@ -88,12 +95,17 @@ class ApiService {
 
     final response = await request.send();
     if (response.statusCode != 200) {
-      throw Exception('Failed to pull image: ${response.statusCode}');
+      throw Exception('Failed to start pull: ${response.statusCode}');
     }
+  }
 
-    return response.stream
-        .transform(utf8.decoder)
-        .transform(const LineSplitter());
+  Future<List<String>> getPullingImages() async {
+    final response = await http.get(Uri.parse('$baseUrl/images/pulling'));
+    if (response.statusCode == 200) {
+      final List<dynamic> list = json.decode(response.body);
+      return list.cast<String>();
+    }
+    return [];
   }
 
   Future<List<dynamic>> searchImages(String term) async {
@@ -230,6 +242,16 @@ class ApiService {
     );
   }
 
+  Future<void> recreateContainer(String id) async {
+    print('POST $baseUrl/containers/$id/recreate');
+    final response = await http.post(
+      Uri.parse('$baseUrl/containers/$id/recreate'),
+    );
+    if (response.statusCode != 200) {
+      throw Exception('Failed to recreate container: ${response.body}');
+    }
+  }
+
   Future<void> disconnectNetwork(String containerId, String networkId) async {
     print('POST $baseUrl/containers/$containerId/network/disconnect');
     await http.post(
@@ -237,5 +259,71 @@ class ApiService {
       headers: {'Content-Type': 'application/json'},
       body: json.encode({'networkId': networkId}),
     );
+  }
+
+  Future<Map<String, dynamic>> getSystemInfo() async {
+    final response = await http.get(Uri.parse('$baseUrl/system/info'));
+    if (response.statusCode == 200) {
+      return json.decode(response.body);
+    } else {
+      throw Exception('Failed to load system info');
+    }
+  }
+
+  Future<void> login(String username, String password, {String? server}) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/auth/login'),
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({
+        'username': username,
+        'password': password,
+        'serveraddress': server,
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+        json.decode(response.body)['error'] ?? 'Authentication failed',
+      );
+    }
+  }
+
+  Future<void> logout() async {
+    await http.post(Uri.parse('$baseUrl/auth/logout'));
+  }
+
+  Future<Map<String, dynamic>> getDockerHubRepository(String name) async {
+    // name format: 'library/ubuntu' or 'user/repo'
+    // If just 'ubuntu', assume 'library/ubuntu'
+    if (!name.contains('/')) {
+      name = 'library/$name';
+    }
+
+    final url = Uri.parse('https://hub.docker.com/v2/repositories/$name/');
+    final response = await http.get(url);
+    if (response.statusCode == 200) {
+      return json.decode(response.body);
+    } else {
+      throw Exception('Failed to load repository details');
+    }
+  }
+
+  Future<List<String>> getDockerHubTags(String name) async {
+    if (!name.contains('/')) {
+      name = 'library/$name';
+    }
+
+    final url = Uri.parse(
+      'https://hub.docker.com/v2/repositories/$name/tags?page_size=100',
+    );
+    final response = await http.get(url);
+
+    if (response.statusCode == 200) {
+      final data = json.decode(response.body);
+      final List<dynamic> results = data['results'] ?? [];
+      return results.map<String>((tag) => tag['name'] as String).toList();
+    } else {
+      // Fallback or empty on error
+      return [];
+    }
   }
 }

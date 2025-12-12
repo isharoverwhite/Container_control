@@ -61,7 +61,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       label: Text('Containers'),
                     ),
                     NavigationRailDestination(
-                      icon: Icon(Icons.album),
+                      icon: Icon(Icons.inventory_2),
                       label: Text('Images'),
                     ),
                     NavigationRailDestination(
@@ -94,7 +94,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   label: 'Containers',
                 ),
                 BottomNavigationBarItem(
-                  icon: Icon(Icons.album),
+                  icon: Icon(Icons.inventory_2),
                   label: 'Images',
                 ),
                 BottomNavigationBarItem(
