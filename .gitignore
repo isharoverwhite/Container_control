@@ -1,0 +1,15 @@
+node_modules/
+.DS_Store
+*.log
+coverage/
+.env
+build/
+linux/flutter/ephemeral
+linux/flutter/ephemeral/
+client/build/
+client/linux/flutter/ephemeral
+# Flutter
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
