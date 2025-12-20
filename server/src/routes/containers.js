@@ -142,47 +142,69 @@ router.get('/:id', async (req, res) => {
 });
 
 // Start container
-router.post('/:id/start', async (req, res) => {
-    try {
-        const container = docker.getContainer(req.params.id);
-        await container.start();
-        res.json({ message: 'Container started' });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+router.post('/:id/start', (req, res) => {
+    const id = req.params.id;
+    res.json({ message: 'Start action queuing...' });
+
+    (async () => {
+        try {
+            const container = docker.getContainer(id);
+            await container.start();
+            global.io.emit('action_status', { type: 'success', message: `Container started successfully`, id });
+        } catch (error) {
+            global.io.emit('action_status', { type: 'error', message: `Start failed: ${error.message}`, id });
+        }
+    })();
 });
 
 // Stop container
-router.post('/:id/stop', async (req, res) => {
-    try {
-        const container = docker.getContainer(req.params.id);
-        await container.stop();
-        res.json({ message: 'Container stopped' });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+router.post('/:id/stop', (req, res) => {
+    const id = req.params.id;
+    res.json({ message: 'Stop action queuing...' });
+
+    (async () => {
+        try {
+            const container = docker.getContainer(id);
+            await container.stop();
+            global.io.emit('action_status', { type: 'success', message: `Container stopped`, id });
+        } catch (error) {
+            global.io.emit('action_status', { type: 'error', message: `Stop failed: ${error.message}`, id });
+        }
+    })();
 });
 
 // Restart container
-router.post('/:id/restart', async (req, res) => {
-    try {
-        const container = docker.getContainer(req.params.id);
-        await container.restart();
-        res.json({ message: 'Container restarted' });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+router.post('/:id/restart', (req, res) => {
+    const id = req.params.id;
+    res.json({ message: 'Restart action queuing...' });
+
+    (async () => {
+        try {
+            const container = docker.getContainer(id);
+            await container.restart();
+            global.io.emit('action_status', { type: 'success', message: `Container restarted`, id });
+        } catch (error) {
+            global.io.emit('action_status', { type: 'error', message: `Restart failed: ${error.message}`, id });
+        }
+    })();
 });
 
 // Remove container
-router.delete('/:id', async (req, res) => {
-    try {
-        const container = docker.getContainer(req.params.id);
-        await container.remove({ force: req.query.force === 'true' });
-        res.json({ message: 'Container removed' });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+router.delete('/:id', (req, res) => {
+    const id = req.params.id;
+    const force = req.query.force === 'true';
+    res.json({ message: 'Delete action queuing...' });
+
+    (async () => {
+        try {
+            const container = docker.getContainer(id);
+            await container.remove({ force: force });
+            global.io.emit('action_status', { type: 'success', message: `Container removed`, id });
+            global.io.emit('containers_changed'); // Hint to refresh
+        } catch (error) {
+            global.io.emit('action_status', { type: 'error', message: `Remove failed: ${error.message}`, id });
+        }
+    })();
 });
 
 // Duplicate container
@@ -226,23 +248,22 @@ router.post('/:id/duplicate', async (req, res) => {
 });
 
 // Update container configuration (Restart Policy, Rename)
-router.post('/:id/update', async (req, res) => {
-    try {
-        const container = docker.getContainer(req.params.id);
-        const { RestartPolicy } = req.body;
+router.post('/:id/update', (req, res) => {
+    const id = req.params.id;
+    const { RestartPolicy } = req.body;
+    res.json({ message: 'Update action queuing...' });
 
-        // dockerode 'update' method updates resources and restart policy.
-        if (RestartPolicy) {
-            await container.update({
-                RestartPolicy: RestartPolicy // { Name: 'always' } or { Name: 'on-failure', MaximumRetryCount: 5 }
-            });
+    (async () => {
+        try {
+            const container = docker.getContainer(id);
+            if (RestartPolicy) {
+                await container.update({ RestartPolicy });
+            }
+            global.io.emit('action_status', { type: 'success', message: `Container updated`, id });
+        } catch (error) {
+            global.io.emit('action_status', { type: 'error', message: `Update failed: ${error.message}`, id });
         }
-
-        res.json({ message: 'Container updated' });
-    } catch (error) {
-        console.error('Update error:', error);
-        res.status(500).json({ error: error.message });
-    }
+    })();
 });
 
 router.get('/:id/logs', async (req, res) => {

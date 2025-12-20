@@ -70,14 +70,21 @@ router.post('/pull', async (req, res) => {
 });
 
 // Remove image
-router.delete('/:id', async (req, res) => {
-    try {
-        const image = docker.getImage(req.params.id);
-        await image.remove({ force: req.query.force === 'true' });
-        res.json({ message: 'Image removed' });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+router.delete('/:id', (req, res) => {
+    const id = req.params.id;
+    const force = req.query.force === 'true';
+    res.json({ message: 'Remove image action queuing...' });
+
+    (async () => {
+        try {
+            const image = docker.getImage(id);
+            await image.remove({ force: force });
+            global.io.emit('action_status', { type: 'success', message: `Image removed`, id });
+            global.io.emit('images_changed');
+        } catch (error) {
+            global.io.emit('action_status', { type: 'error', message: `Remove image failed: ${error.message}`, id });
+        }
+    })();
 });
 
 // Search Docker Hub images

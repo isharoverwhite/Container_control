@@ -68,44 +68,58 @@ router.get('/:name', (req, res) => {
 });
 
 // Delete Stack
-router.delete('/:name', async (req, res) => {
-    const stackPath = path.join(STACKS_DIR, req.params.name);
+router.delete('/:name', (req, res) => {
+    const name = req.params.name;
+    const stackPath = path.join(STACKS_DIR, name);
     if (!fs.existsSync(stackPath)) return res.status(404).json({ error: 'Stack not found' });
 
-    // Maybe define if we should down it first? User responsibility usually.
-    try {
-        fs.rmSync(stackPath, { recursive: true, force: true });
-        res.json({ message: 'Stack deleted' });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+    res.json({ message: 'Delete stack action queuing...' });
+
+    (async () => {
+        try {
+            fs.rmSync(stackPath, { recursive: true, force: true });
+            global.io.emit('action_status', { type: 'success', message: `Stack deleted`, id: name });
+            global.io.emit('stacks_changed');
+        } catch (error) {
+            global.io.emit('action_status', { type: 'error', message: `Delete stack failed: ${error.message}`, id: name });
+        }
+    })();
 });
 
 // Action: Up
-router.post('/:name/up', async (req, res) => {
-    const stackPath = path.join(STACKS_DIR, req.params.name);
+router.post('/:name/up', (req, res) => {
+    const name = req.params.name;
+    const stackPath = path.join(STACKS_DIR, name);
     if (!fs.existsSync(stackPath)) return res.status(404).json({ error: 'Stack not found' });
 
-    try {
-        // Try 'docker compose' (v2) first, fallback to 'docker-compose' could be added
-        const output = await runCommand('docker compose up -d', stackPath);
-        res.json({ message: 'Stack started', output });
-    } catch (err) {
-        res.status(500).json({ error: err.message, details: err.stderr });
-    }
+    res.json({ message: 'Stack up action queuing...' });
+
+    (async () => {
+        try {
+            const output = await runCommand('docker compose up -d', stackPath);
+            global.io.emit('action_status', { type: 'success', message: `Stack started`, id: name });
+        } catch (err) {
+            global.io.emit('action_status', { type: 'error', message: `Stack up failed: ${err.message}`, id: name });
+        }
+    })();
 });
 
 // Action: Down
-router.post('/:name/down', async (req, res) => {
-    const stackPath = path.join(STACKS_DIR, req.params.name);
+router.post('/:name/down', (req, res) => {
+    const name = req.params.name;
+    const stackPath = path.join(STACKS_DIR, name);
     if (!fs.existsSync(stackPath)) return res.status(404).json({ error: 'Stack not found' });
 
-    try {
-        const output = await runCommand('docker compose down', stackPath);
-        res.json({ message: 'Stack stopped', output });
-    } catch (err) {
-        res.status(500).json({ error: err.message, details: err.stderr });
-    }
+    res.json({ message: 'Stack down action queuing...' });
+
+    (async () => {
+        try {
+            const output = await runCommand('docker compose down', stackPath);
+            global.io.emit('action_status', { type: 'success', message: `Stack stopped`, id: name });
+        } catch (err) {
+            global.io.emit('action_status', { type: 'error', message: `Stack down failed: ${err.message}`, id: name });
+        }
+    })();
 });
 
 module.exports = router;

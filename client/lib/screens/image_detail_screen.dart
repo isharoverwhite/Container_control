@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/square_scaling_spinner.dart';
 import '../services/api_service.dart';
 
 class ImageDetailScreen extends StatefulWidget {
@@ -422,8 +423,9 @@ class _ImageDetailScreenState extends State<ImageDetailScreen> {
                               const SizedBox(
                                 width: 20,
                                 height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
+                                child: SquareScalingSpinner(
+                                  size: 30,
+                                  color: Color(0xFF00E5FF),
                                 ),
                               )
                             else
@@ -471,7 +473,7 @@ class _ImageDetailScreenState extends State<ImageDetailScreen> {
 
             const SizedBox(height: 24),
             if (_isLoadingHubData)
-              const Center(child: CircularProgressIndicator())
+              const Center(child: SquareScalingSpinner(color: Color(0xFF00E5FF)))
             else if (_repoDescription.isNotEmpty) ...[
               Text(
                 'Overview',

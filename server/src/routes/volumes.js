@@ -25,31 +25,42 @@ router.get('/:name', async (req, res) => {
 });
 
 // Remove volume
-router.delete('/:name', async (req, res) => {
-    try {
-        const volume = docker.getVolume(req.params.name);
-        await volume.remove();
-        res.json({ message: 'Volume removed' });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+router.delete('/:name', (req, res) => {
+    const name = req.params.name;
+    res.json({ message: 'Remove volume action queuing...' });
+
+    (async () => {
+        try {
+            const volume = docker.getVolume(name);
+            await volume.remove();
+            global.io.emit('action_status', { type: 'success', message: `Volume removed`, id: name });
+            global.io.emit('volumes_changed');
+        } catch (error) {
+            global.io.emit('action_status', { type: 'error', message: `Remove volume failed: ${error.message}`, id: name });
+        }
+    })();
 });
 
 // Create volume
-router.post('/', async (req, res) => {
-    try {
-        const { name, driver, driverOpts, labels } = req.body;
-        const options = {
-            Name: name,
-            Driver: driver || 'local',
-            DriverOpts: driverOpts, // e.g., { type: 'none', device: '/home/user/data', o: 'bind' }
-            Labels: labels
-        };
-        const volume = await docker.createVolume(options);
-        res.json(volume);
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
+router.post('/', (req, res) => {
+    const { name, driver, driverOpts, labels } = req.body;
+    res.json({ message: 'Create volume action queuing...' });
+
+    (async () => {
+        try {
+            const options = {
+                Name: name,
+                Driver: driver || 'local',
+                DriverOpts: driverOpts,
+                Labels: labels
+            };
+            const volume = await docker.createVolume(options);
+            global.io.emit('action_status', { type: 'success', message: `Volume created`, id: volume.name });
+            global.io.emit('volumes_changed');
+        } catch (error) {
+            global.io.emit('action_status', { type: 'error', message: `Create volume failed: ${error.message}` });
+        }
+    })();
 });
 
 module.exports = router;

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/square_scaling_spinner.dart';
 import 'dart:convert';
 import '../services/api_service.dart';
 import '../services/notification_service.dart';
@@ -60,7 +61,7 @@ class _DockerHubSearchScreenState extends State<DockerHubSearchScreen> {
       ),
       body: _isLoading
           ? const Center(
-              child: CircularProgressIndicator(color: Color(0xFF00E5FF)),
+              child: SquareScalingSpinner(color: Color(0xFF00E5FF)),
             )
           : ListView.separated(
               itemCount: _results.length,

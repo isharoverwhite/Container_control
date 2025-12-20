@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import '../../widgets/square_scaling_spinner.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../models/container_model.dart';
 import '../services/api_service.dart';
@@ -290,18 +291,21 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              widget.container.names.isNotEmpty
-                                  ? widget.container.names[0].replaceAll(
+                            widget.container.names.isNotEmpty
+                                ? Text(
+                                    widget.container.names[0].replaceAll(
                                       '/',
                                       '',
-                                    )
-                                  : 'Container',
-                              style: const TextStyle(
-                                fontSize: 20,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
+                                    ),
+                                    style: const TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  )
+                                : const SquareScalingSpinner(
+                                    size: 30,
+                                    color: Color(0xFF00E5FF),
+                                  ),
                             const SizedBox(height: 4),
                             Text(
                               'Image: $image',

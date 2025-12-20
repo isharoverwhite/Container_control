@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../widgets/square_scaling_spinner.dart';
 import 'dart:convert';
 import '../services/api_service.dart';
 import '../services/notification_service.dart';
@@ -252,7 +253,7 @@ class _DockerHubImageDetailScreenState
                   ? const Center(
                       child: Padding(
                         padding: EdgeInsets.all(8.0),
-                        child: CircularProgressIndicator(),
+                        child: SquareScalingSpinner(size: 30, color: Colors.white),
                       ),
                     )
                   : DropdownButtonHideUnderline(
@@ -300,7 +301,7 @@ class _DockerHubImageDetailScreenState
                 border: Border.all(color: Colors.white10),
               ),
               child: _isLoadingDetails
-                  ? const Center(child: CircularProgressIndicator())
+                  ? const Center(child: SquareScalingSpinner(color: Color(0xFF00E5FF)))
                   : Text(
                       desc,
                       style: const TextStyle(

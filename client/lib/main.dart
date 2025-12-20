@@ -1,9 +1,16 @@
 import 'package:flutter/material.dart';
 import 'screens/home_screen.dart';
 import 'services/notification_service.dart';
+import 'services/api_service.dart';
+
+import 'services/server_manager.dart';
+
+final GlobalKey<ScaffoldMessengerState> rootScaffoldMessengerKey =
+    GlobalKey<ScaffoldMessengerState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await ServerManager().init();
   await NotificationService().init();
   runApp(const MyApp());
 }
@@ -14,7 +21,11 @@ class MyApp extends StatelessWidget {
   // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
+    // Setup global socket listener once
+    _setupSocketListener();
+
     return MaterialApp(
+      scaffoldMessengerKey: rootScaffoldMessengerKey,
       title: 'Experience: Container Controller',
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark,
@@ -49,5 +60,24 @@ class MyApp extends StatelessWidget {
       ),
       home: const HomeScreen(),
     );
+  }
+
+  void _setupSocketListener() {
+    final api = ApiService();
+    // Ensure socket is connected or connects
+    api.socket.on('action_status', (data) {
+      final type = data['type'];
+      final message = data['message'];
+
+      if (rootScaffoldMessengerKey.currentState != null) {
+        rootScaffoldMessengerKey.currentState!.showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: type == 'error' ? Colors.redAccent : const Color(0xFF00E676),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    });
   }
 }

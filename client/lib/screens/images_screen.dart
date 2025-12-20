@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import '../../widgets/square_scaling_spinner.dart';
 import '../services/api_service.dart';
 import 'image_detail_screen.dart';
 import 'docker_hub_search_screen.dart';
 import 'create_container_screen.dart';
 import '../widgets/responsive_layout.dart';
+import '../widgets/confirmation_dialog.dart';
 
 class ImagesScreen extends StatefulWidget {
   const ImagesScreen({super.key});
@@ -31,19 +33,29 @@ class _ImagesScreenState extends State<ImagesScreen> {
   }
 
   Future<void> _deleteImage(String id) async {
-    try {
-      await _apiService.deleteImage(id);
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Image deleted')));
-      _refreshImages();
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error: $e')));
-    }
+    if (!mounted) return;
+    await showConfirmationDialog(
+      context: context,
+      title: 'Delete Image',
+      content: 'Are you sure you want to delete this image? This action cannot be undone.',
+      onConfirm: () async {
+        try {
+          await _apiService.deleteImage(id);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Delete action sent')),
+            );
+          }
+          _refreshImages();
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Error: $e')),
+            );
+          }
+        }
+      },
+    );
   }
 
   void _openDockerHubSearch() {
@@ -56,97 +68,113 @@ class _ImagesScreenState extends State<ImagesScreen> {
   }
 
   Future<void> _showLoginDialog() async {
-    final usernameController = TextEditingController();
-    final passwordController = TextEditingController();
-    final serverController = TextEditingController(
-      text: 'https://index.docker.io/v1/',
-    );
+    bool loading = true;
+    String? userCode;
+    String? verificationUri;
+
+    // Start flow immediately
+    try {
+      final data = await _apiService.initDeviceLogin();
+      userCode = data['user_code'];
+      verificationUri = data['verification_uri'];
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to start login: $e')),
+        );
+      }
+      return;
+    } finally {
+      loading = false;
+    }
+
+    if (!mounted) return;
 
     showDialog(
       context: context,
+      barrierDismissible: false,
       builder: (dialogContext) {
-        return AlertDialog(
-          backgroundColor: const Color(0xFF1E1E1E),
-          title: const Text(
-            'Docker Login',
-            style: TextStyle(color: Colors.white),
-          ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: usernameController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
-                    labelText: 'Username',
-                    labelStyle: TextStyle(color: Colors.white54),
-                    enabledBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: Colors.white10),
+        return StatefulBuilder(
+          builder: (context, setState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1E1E1E),
+              title: const Text(
+                'Connect Docker Account',
+                style: TextStyle(color: Colors.white),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'To log in, visit the following URL on your device and enter the code below:',
+                    style: TextStyle(color: Colors.white70),
+                    textAlign: TextAlign.center,
+                  ),
+                  const SizedBox(height: 16),
+                  SelectableText(
+                    verificationUri ?? '',
+                    style: const TextStyle(
+                      color: Color(0xFF00E5FF),
+                      decoration: TextDecoration.underline,
                     ),
                   ),
+                  const SizedBox(height: 24),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: Colors.black26,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.white24),
+                    ),
+                    child: SelectableText(
+                      userCode ?? 'ERROR',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 32,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 4,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  const SquareScalingSpinner(size: 20, color: Colors.white54),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Waiting for confirmation...',
+                    style: TextStyle(color: Colors.white38, fontSize: 12),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  child: const Text('Cancel'),
+                  onPressed: () => Navigator.of(dialogContext).pop(),
                 ),
-                TextField(
-                  controller: passwordController,
-                  obscureText: true,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
-                    labelText: 'Password',
-                    labelStyle: TextStyle(color: Colors.white54),
-                    enabledBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: Colors.white10),
-                    ),
-                  ),
-                ),
-                TextField(
-                  controller: serverController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
-                    labelText: 'Registry Server',
-                    labelStyle: TextStyle(color: Colors.white54),
-                    enabledBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: Colors.white10),
-                    ),
-                  ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF00E5FF)),
+                  onPressed: () async {
+                    // Manual poll trigger for "I've done it"
+                    try {
+                      await _apiService.pollDeviceLogin();
+                      if (context.mounted) {
+                        Navigator.of(dialogContext).pop();
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Login successful')),
+                        );
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                         ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(content: Text('Not verified yet')),
+                        );
+                      }
+                    }
+                  },
+                  child: const Text('I have confirmed', style: TextStyle(color: Colors.black)),
                 ),
               ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              child: const Text('Cancel'),
-              onPressed: () => Navigator.of(dialogContext).pop(),
-            ),
-            TextButton(
-              child: const Text(
-                'Login',
-                style: TextStyle(color: Color(0xFF00E5FF)),
-              ),
-              onPressed: () async {
-                Navigator.of(dialogContext).pop();
-                try {
-                  await _apiService.login(
-                    usernameController.text,
-                    passwordController.text,
-                    server: serverController.text.isNotEmpty
-                        ? serverController.text
-                        : null,
-                  );
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Login successful')),
-                    );
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(
-                      context,
-                    ).showSnackBar(SnackBar(content: Text('Error: $e')));
-                  }
-                }
-              },
-            ),
-          ],
+            );
+          },
         );
       },
     );
@@ -216,7 +244,7 @@ class _ImagesScreenState extends State<ImagesScreen> {
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(
-                    child: CircularProgressIndicator(color: Color(0xFF00E5FF)),
+                    child: SquareScalingSpinner(color: Color(0xFF00E5FF)),
                   );
                 }
                 if (snapshot.hasError) {

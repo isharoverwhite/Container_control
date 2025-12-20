@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import '../../widgets/square_scaling_spinner.dart';
+import '../services/api_service.dart';
 import '../services/api_service.dart';
 import '../widgets/responsive_layout.dart';
+import '../widgets/confirmation_dialog.dart';
 
 class VolumesScreen extends StatefulWidget {
   const VolumesScreen({super.key});
@@ -33,19 +36,29 @@ class _VolumesScreenState extends State<VolumesScreen> {
   }
 
   Future<void> _deleteVolume(String name) async {
-    try {
-      await _apiService.deleteVolume(name);
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Volume deleted')));
-      _refreshVolumes();
-    } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error: $e')));
-    }
+    if (!mounted) return;
+    await showConfirmationDialog(
+      context: context,
+      title: 'Delete Volume',
+      content: 'Are you sure you want to delete this volume? This action cannot be undone.',
+      onConfirm: () async {
+        try {
+          await _apiService.deleteVolume(name);
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Delete action sent')),
+            );
+          }
+          _refreshVolumes();
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Error: $e')),
+            );
+          }
+        }
+      },
+    );
   }
 
   Future<void> _showCreateVolumeDialog() async {
@@ -177,7 +190,7 @@ class _VolumesScreenState extends State<VolumesScreen> {
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
-              child: CircularProgressIndicator(color: Color(0xFF00E5FF)),
+              child: SquareScalingSpinner(color: Color(0xFF00E5FF)),
             );
           }
           if (snapshot.hasError) {

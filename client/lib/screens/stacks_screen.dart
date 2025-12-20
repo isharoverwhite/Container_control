@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
+import '../../widgets/square_scaling_spinner.dart';
+import '../services/api_service.dart';
 import '../services/api_service.dart';
 import '../widgets/responsive_layout.dart';
+import '../widgets/confirmation_dialog.dart';
 
 class StacksScreen extends StatefulWidget {
   const StacksScreen({super.key});
@@ -26,18 +29,36 @@ class _StacksScreenState extends State<StacksScreen> {
   }
 
   Future<void> _handleStackAction(String name, String action) async {
+    if (action == 'remove') {
+      if (!mounted) return;
+      await showConfirmationDialog(
+        context: context,
+        title: 'Delete Stack',
+        content: 'Are you sure you want to delete this stack? This action cannot be undone.',
+        onConfirm: () async {
+            await _performStackAction(name, action);
+        },
+      );
+    } else {
+      await _performStackAction(name, action);
+    }
+  }
+
+  Future<void> _performStackAction(String name, String action) async {
     try {
       await _apiService.controlStack(name, action);
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Stack $action triggered')));
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+             SnackBar(content: Text('Stack $action triggered')),
+          );
+        }
       _refreshStacks();
     } catch (e) {
-      if (mounted)
+      if (mounted) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Error: $e')));
+      }
     }
   }
 
@@ -159,7 +180,7 @@ class _StacksScreenState extends State<StacksScreen> {
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
-              child: CircularProgressIndicator(color: Color(0xFF00E5FF)),
+              child: SquareScalingSpinner(color: Color(0xFF00E5FF)),
             );
           }
           if (snapshot.hasError) {

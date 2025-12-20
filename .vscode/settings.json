@@ -1,3 +1,4 @@
 {
-    "cmake.sourceDirectory": "/home/ryzen30xx/Desktop/Container Control/client/linux"
+    "cmake.sourceDirectory": "/home/ryzen30xx/Desktop/Container Control/client/linux",
+    "java.configuration.updateBuildConfiguration": "interactive"
 }

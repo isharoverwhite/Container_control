@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import '../../widgets/square_scaling_spinner.dart';
 import '../services/api_service.dart';
 import '../models/container_model.dart';
 import 'logs_screen.dart';
 import 'container_detail_screen.dart';
 import '../widgets/responsive_layout.dart';
+import '../widgets/confirmation_dialog.dart';
 
 class ContainersScreen extends StatefulWidget {
   const ContainersScreen({super.key});
@@ -38,7 +40,34 @@ class _ContainersScreenState extends State<ContainersScreen> {
       if (action == 'stop') await _apiService.stopContainer(id);
       if (action == 'restart') await _apiService.restartContainer(id);
       if (action == 'duplicate') await _apiService.duplicateContainer(id);
-      if (action == 'delete') await _apiService.deleteContainer(id);
+      if (action == 'duplicate') await _apiService.duplicateContainer(id);
+      if (action == 'delete') {
+        if (mounted) {
+          await showConfirmationDialog(
+            context: context,
+            title: 'Delete Container',
+            content: 'Are you sure you want to delete this container? This action cannot be undone.',
+            onConfirm: () async {
+              try {
+                await _apiService.deleteContainer(id);
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Delete action sent')),
+                  );
+                }
+                _refreshContainers();
+              } catch (e) {
+                 if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Error: $e')),
+                  );
+                }
+              }
+            },
+          );
+        }
+        return; // Return to avoid double snackbar from below block
+      }
       if (action == 'logs') {
         if (mounted) {
           Navigator.push(
@@ -125,7 +154,7 @@ class _ContainersScreenState extends State<ContainersScreen> {
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(
-                    child: CircularProgressIndicator(color: Color(0xFF00E5FF)),
+                    child: SquareScalingSpinner(color: Color(0xFF00E5FF)),
                   );
                 }
                 if (snapshot.hasError) {

@@ -1,17 +1,24 @@
+require('dotenv').config();
 const express = require('express');
+const os = require('os');
+const https = require('https');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const Docker = require('dockerode');
+
+global.pullingImages = new Set();
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
     cors: {
         origin: "*", // Allow all for now, lock down later
-        methods: ["GET", "POST", "DELETE", "PUT"]
+        methods: ["GET", "POST", "DELETE", "PUT"],
+        allowedHeaders: ["x-api-key"],
     }
 });
+global.io = io;
 
 const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 
@@ -22,6 +29,39 @@ const stackRoutes = require('./routes/stacks');
 
 app.use(cors());
 app.use(express.json());
+
+// API Key Middleware
+app.use((req, res, next) => {
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+        console.warn('WARNING: API_KEY not set in .env. Falling back to insecure mode (not recommended).');
+        return next();
+    }
+
+    // Skip auth for simple health check if desired, but user asked for key security.
+    // We'll apply it to everything under /api except maybe a simple ping?
+    // Let's apply it everywhere for simplicity as per requirement.
+
+    // Check header
+    const clientKey = req.headers['x-api-key'];
+    if (!clientKey || clientKey !== apiKey) {
+        return res.status(403).json({ error: 'Forbidden: Invalid API Key' });
+    }
+    next();
+});
+
+// Socket Auth Middleware
+io.use((socket, next) => {
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) return next();
+
+    const clientKey = socket.handshake.auth.token || socket.handshake.headers['x-api-key'];
+    if (clientKey === apiKey) {
+        next();
+    } else {
+        next(new Error("Invalid API Key"));
+    }
+});
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -92,8 +132,54 @@ app.get('/api/system/info', async (req, res) => {
 
 const PORT = 3000;
 
-server.listen(PORT, () => {
+const getIpAddresses = () => {
+    const interfaces = os.networkInterfaces();
+    const results = {
+        local: [],
+        tailscale: []
+    };
+
+    for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name]) {
+            if (iface.family === 'IPv4' && !iface.internal) {
+                if (name.toLowerCase().includes('tailscale') || iface.address.startsWith('100.')) {
+                    results.tailscale.push(iface.address);
+                } else {
+                    results.local.push(iface.address);
+                }
+            }
+        }
+    }
+    return results;
+};
+
+const getPublicIp = () => {
+    return new Promise((resolve) => {
+        https.get('https://api.ipify.org?format=json', (res) => {
+            let data = '';
+            res.on('data', (chunk) => data += chunk);
+            res.on('end', () => {
+                try {
+                    resolve(JSON.parse(data).ip);
+                } catch (e) {
+                    resolve('Unknown');
+                }
+            });
+        }).on('error', () => resolve('Unknown'));
+    });
+};
+
+server.listen(PORT, async () => {
     console.log(`Server running on port ${PORT}`);
+
+    const ips = getIpAddresses();
+    const publicIp = await getPublicIp();
+
+    console.log('--- Server Addresses ---');
+    console.log(`Local:     ${ips.local.join(', ') || 'None'}`);
+    console.log(`Tailscale: ${ips.tailscale.join(', ') || 'None'}`);
+    console.log(`Public:    ${publicIp}`);
+    console.log('------------------------');
 });
 
 // Socket handling
