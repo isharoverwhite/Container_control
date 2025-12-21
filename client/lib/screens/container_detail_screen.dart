@@ -16,11 +16,12 @@ class ContainerDetailScreen extends StatefulWidget {
 
 class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
   final ApiService _apiService = ApiService();
-  late IO.Socket socket;
   final List<TextSpan> _logSpans = [];
   final ScrollController _scrollController = ScrollController();
-  final String _socketUrl = 'http://localhost:3000';
-  Future<Map<String, dynamic>>? _inspectFuture;
+  Map<String, dynamic>? _containerData;
+  bool _isLoading = true;
+  bool _isActionLoading = false;
+  Timer? _refreshTimer;
 
   // Uptime Timer
   Timer? _uptimeTimer;
@@ -34,20 +35,26 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
   void initState() {
     super.initState();
     _connectSocket();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 3), (_) => _refreshDetails(silent: true));
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_inspectFuture == null) {
+    // Initial fetch if empty
+    if (_containerData == null) {
       _refreshDetails();
     }
   }
 
-  void _refreshDetails() {
-    _inspectFuture = _apiService.inspectContainer(widget.container.id).then((
-      data,
-    ) {
+  Future<void> _refreshDetails({bool silent = false}) async {
+    if (!silent) {
+        setState(() => _isLoading = true);
+    }
+    try {
+      final data = await _apiService.inspectContainer(widget.container.id);
+      if (!mounted) return;
+      
       // Initialize settings from data
       final hostConfig = data['HostConfig'];
       if (hostConfig != null && hostConfig['RestartPolicy'] != null) {
@@ -68,9 +75,14 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
         _uptimeString = state['Status'] ?? 'unknown';
       }
 
-      return data;
-    });
-    if (mounted) setState(() {});
+      setState(() {
+          _containerData = data;
+          _isLoading = false;
+      });
+    } catch (e) {
+        print('Error refreshing details: $e');
+        if (mounted && !silent) setState(() => _isLoading = false);
+    }
   }
 
   void _startUptimeTimer() {
@@ -108,39 +120,44 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
   }
 
   void _connectSocket() {
-    socket = IO.io(
-      _socketUrl,
-      IO.OptionBuilder()
-          .setTransports(['websocket'])
-          .enableAutoConnect()
-          .build(),
-    );
+    final socket = _apiService.socket;
+    print('Connecting to socket at ${_apiService.socketUrl} for container ${widget.container.id}');
 
     socket.onConnect((_) {
-      print('Connected to socket for logs');
+      print('Connected to socket matches ${socket.id}');
       socket.emit('subscribe_logs', widget.container.id);
     });
 
+    socket.on('connect_error', (data) => print('Socket Connect Error: $data'));
+    socket.on('error', (data) => print('Socket Error: $data'));
+
+    if (socket.connected) {
+      print('Socket already connected, subscribing...');
+      socket.emit('subscribe_logs', widget.container.id);
+    }
+
     socket.on('log_chunk', (data) {
+      if (!mounted) return;
       if (data['containerId'] == widget.container.id) {
-        if (mounted) {
           final spans = AnsiParser.parse(data['chunk']);
           setState(() {
             _logSpans.addAll(spans);
           });
-          // Limit logs to avoid memory issues
+          
           if (_logSpans.length > 2000) {
             _logSpans.removeRange(0, _logSpans.length - 2000);
           }
+          
           // Auto-scroll logic if at bottom
-          if (_scrollController.hasClients &&
-              _scrollController.position.atEdge &&
-              _scrollController.position.pixels != 0) {
-            _scrollToBottom();
-          } else {
-            _scrollToBottom(); // Force stick for now
+          if (_scrollController.hasClients) {
+             // Scroll if close to bottom (e.g. within 50 pixels) or if we were at start
+             final maxScroll = _scrollController.position.maxScrollExtent;
+             final currentScroll = _scrollController.position.pixels;
+             
+             if (maxScroll - currentScroll < 100 || currentScroll == 0) {
+               _scrollToBottom();
+             }
           }
-        }
       }
     });
 
@@ -156,23 +173,43 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
   }
 
   Future<void> _handleAction(String action) async {
+    setState(() => _isActionLoading = true);
+    
+    String? error;
     try {
       final id = widget.container.id;
       if (action == 'start') await _apiService.startContainer(id);
       if (action == 'stop') await _apiService.stopContainer(id);
       if (action == 'restart') await _apiService.restartContainer(id);
-
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Action $action sent')));
-        _refreshDetails();
-      }
     } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error: $e')));
+      error = e.toString();
+    }
+
+    // 1. Stop Loading State
+    if (mounted) setState(() => _isActionLoading = false);
+
+    // 2. Refresh Details
+    await _refreshDetails();
+
+    // 3. Notification
+    if (mounted) {
+      if (error != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $error'),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Action $action completed successfully'),
+            backgroundColor: const Color(0xFF00E676),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
@@ -187,20 +224,29 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
         _selectedRestartPolicy = newValue;
       });
       if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text('Restart policy updated')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Restart policy updated'),
+            backgroundColor: Color(0xFF00E676),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
     } catch (e) {
       if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error updating: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error updating: $e'),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
     }
   }
 
   @override
   void dispose() {
-    socket.dispose();
+    _apiService.socket.dispose();
+    _refreshTimer?.cancel();
     _uptimeTimer?.cancel();
     _scrollController.dispose();
     super.dispose();
@@ -220,7 +266,7 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
         appBar: AppBar(
           title: Text(
             widget.container.names.isNotEmpty
-                ? widget.container.names[0]
+                ? widget.container.names[0].replaceAll('/', '')
                 : 'Detail',
           ),
           bottom: const TabBar(
@@ -236,14 +282,11 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
         body: Column(
           children: [
             // Header Section
-            FutureBuilder<Map<String, dynamic>>(
-              future: _inspectFuture,
-              builder: (context, snapshot) {
-                if (!snapshot.hasData)
-                  return const LinearProgressIndicator(
-                    color: Color(0xFF00E5FF),
-                  );
-                final data = snapshot.data!;
+            if (_isLoading && _containerData == null)
+              const LinearProgressIndicator(color: Color(0xFF00E5FF))
+            else if (_containerData != null)
+              Builder(builder: (context) {
+                final data = _containerData!;
                 final state = data['State'] ?? {};
                 final config = data['Config'] ?? {};
                 final networkSettings = data['NetworkSettings'] ?? {};
@@ -361,6 +404,12 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
                         ),
                       ),
                       // Merged Actions
+                      if (_isActionLoading)
+                         const Padding(
+                           padding: EdgeInsets.all(16.0),
+                           child: SquareScalingSpinner(size: 40, color: Color(0xFF00E5FF)),
+                         )
+                      else
                       Column(
                         children: [
                           if (isRunning)
@@ -396,8 +445,7 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
                     ],
                   ),
                 );
-              },
-            ),
+              }),
 
             // Tabs Content
             Expanded(
@@ -425,16 +473,10 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
                   ),
 
                   // Tab 2: Settings
-                  FutureBuilder<Map<String, dynamic>>(
-                    future: _inspectFuture,
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData)
-                        return const Center(
-                          child: CircularProgressIndicator(
-                            color: Color(0xFF00E5FF),
-                          ),
-                        );
-                      final data = snapshot.data!;
+                  if (_isLoading && _containerData == null)
+                     const Center(child: CircularProgressIndicator(color: Color(0xFF00E5FF)))
+                  else Builder(builder: (context) {
+                          final data = _containerData!;
                       final config = data['Config'] ?? {};
                       final hostConfig = data['HostConfig'] ?? {};
                       final network = data['NetworkSettings'] ?? {};
@@ -666,8 +708,8 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
                           _buildNetworkSection(network['Networks']),
                         ],
                       );
-                    },
-                  ),
+                   }),
+
                 ],
               ),
             ),
@@ -742,16 +784,26 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
   Future<void> _disconnectNetwork(String name, String networkId) async {
     try {
       await _apiService.disconnectNetwork(widget.container.id, networkId);
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Disconnected from $name')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Disconnected from $name'),
+            backgroundColor: const Color(0xFF00E676),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
       _refreshDetails();
     } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 
@@ -761,10 +813,15 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
     try {
       networks = await _apiService.getNetworks();
     } catch (e) {
-      if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Failed to load networks: $e')));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to load networks: $e'),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
       return;
     }
 

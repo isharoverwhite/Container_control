@@ -15,6 +15,7 @@ class VolumesScreen extends StatefulWidget {
 class _VolumesScreenState extends State<VolumesScreen> {
   final ApiService _apiService = ApiService();
   late Future<List<dynamic>> _volumesFuture;
+  final Set<String> _loadingVolumes = {};
 
   @override
   void initState() {
@@ -42,18 +43,39 @@ class _VolumesScreenState extends State<VolumesScreen> {
       title: 'Delete Volume',
       content: 'Are you sure you want to delete this volume? This action cannot be undone.',
       onConfirm: () async {
+        setState(() {
+          _loadingVolumes.add(name);
+        });
+        
+        String? error;
         try {
           await _apiService.deleteVolume(name);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Delete action sent')),
-            );
-          }
-          _refreshVolumes();
         } catch (e) {
-          if (mounted) {
+          error = e.toString();
+        }
+
+        // 1. Stop Loading State
+        if (mounted) {
+           setState(() {
+             _loadingVolumes.remove(name);
+           });
+        }
+
+        // 2. Refresh List
+        _refreshVolumes();
+
+        // 3. Notification
+        if (mounted) {
+          if (error != null) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Error: $e')),
+              SnackBar(content: Text('Error: $error'), backgroundColor: Colors.redAccent),
+            );
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('Volume deleted successfully'),
+                backgroundColor: Color(0xFF00E676),
+              ),
             );
           }
         }
@@ -256,13 +278,19 @@ class _VolumesScreenState extends State<VolumesScreen> {
                     'Driver: $driver',
                     style: const TextStyle(color: Colors.white38),
                   ),
-                  trailing: IconButton(
-                    icon: const Icon(
-                      Icons.delete_outline,
-                      color: Colors.redAccent,
-                    ),
-                    onPressed: () => _deleteVolume(name),
-                  ),
+                  trailing: _loadingVolumes.contains(name) 
+                     ? const SizedBox(
+                         width: 24, 
+                         height: 24, 
+                         child: SquareScalingSpinner(size: 24, color: Colors.orangeAccent)
+                       )
+                     : IconButton(
+                        icon: const Icon(
+                          Icons.delete_outline,
+                          color: Colors.redAccent,
+                        ),
+                        onPressed: () => _deleteVolume(name),
+                      ),
                 ),
               );
             },

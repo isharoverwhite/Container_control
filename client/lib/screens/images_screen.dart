@@ -19,6 +19,7 @@ class _ImagesScreenState extends State<ImagesScreen> {
   late Future<List<dynamic>> _imagesFuture;
   String _searchQuery = '';
   final TextEditingController _searchController = TextEditingController();
+  final Set<String> _loadingImageIds = {};
 
   @override
   void initState() {
@@ -39,18 +40,39 @@ class _ImagesScreenState extends State<ImagesScreen> {
       title: 'Delete Image',
       content: 'Are you sure you want to delete this image? This action cannot be undone.',
       onConfirm: () async {
+        setState(() {
+          _loadingImageIds.add(id);
+        });
+        
+        String? error;
         try {
           await _apiService.deleteImage(id);
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Delete action sent')),
-            );
-          }
-          _refreshImages();
         } catch (e) {
-          if (mounted) {
+          error = e.toString();
+        }
+
+        // 1. Stop Loading state
+        if (mounted) {
+           setState(() {
+             _loadingImageIds.remove(id);
+           });
+        }
+
+        // 2. Refresh List
+        _refreshImages();
+
+        // 3. Notification
+        if (mounted) {
+          if (error != null) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Error: $e')),
+              SnackBar(content: Text('Error: $error'), backgroundColor: Colors.redAccent),
+            );
+          } else {
+             ScaffoldMessenger.of(context).showSnackBar(
+               const SnackBar(
+                content: Text('Image deleted successfully'), 
+                backgroundColor: Color(0xFF00E676),
+              ),
             );
           }
         }
@@ -326,30 +348,38 @@ class _ImagesScreenState extends State<ImagesScreen> {
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            IconButton(
-                              icon: const Icon(
-                                Icons.play_circle_fill,
-                                color: Color(0xFF00E676),
-                              ),
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => CreateContainerScreen(
-                                      initialImage: image,
+                            if (_loadingImageIds.contains(image['Id']))
+                              const SizedBox(
+                                width: 24, 
+                                height: 24, 
+                                child: SquareScalingSpinner(size: 24, color: Colors.blueAccent)
+                              )
+                            else ...[
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.play_circle_fill,
+                                  color: Color(0xFF00E676),
+                                ),
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => CreateContainerScreen(
+                                        initialImage: image,
+                                      ),
                                     ),
-                                  ),
-                                );
-                              },
-                              tooltip: 'Run this image',
-                            ),
-                            IconButton(
-                              icon: const Icon(
-                                Icons.delete_outline,
-                                color: Colors.redAccent,
+                                  );
+                                },
+                                tooltip: 'Run this image',
                               ),
-                              onPressed: () => _deleteImage(image['Id']),
-                            ),
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  color: Colors.redAccent,
+                                ),
+                                onPressed: () => _deleteImage(image['Id']),
+                              ),
+                            ]
                           ],
                         ),
                       ),

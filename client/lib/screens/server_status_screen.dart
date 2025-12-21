@@ -95,6 +95,7 @@ class _ServerStatusScreenState extends State<ServerStatusScreen> {
                _buildCard(
                 title: 'System Information',
                 children: [
+                  _buildRow('Mode', _systemInfo!['executionMode'] ?? 'Unknown'),
                   _buildRow('OS', _systemInfo!['OperatingSystem'] ?? 'Unknown'),
                   _buildRow('Kernel', _systemInfo!['KernelVersion'] ?? 'Unknown'),
                   _buildRow('Architecture', _systemInfo!['Architecture'] ?? 'Unknown'),

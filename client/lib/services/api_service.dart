@@ -8,17 +8,25 @@ class ApiService {
 
   String get baseUrl {
     final server = ServerManager().activeServer;
-    if (server == null) return 'http://localhost:3000/api'; // Fallback
+    if (server == null) return 'https://localhost:3000/api'; // Fallback
+    
     String ip = server.ip;
-    if (!ip.startsWith('http')) ip = 'http://$ip';
+    if (!ip.startsWith('http')) ip = 'https://$ip';
+    
+    // Remove trailing slash if present
+    if (ip.endsWith('/')) ip = ip.substring(0, ip.length - 1);
+    
     return '$ip/api';
   }
 
   String get socketUrl {
      final server = ServerManager().activeServer;
-     if (server == null) return 'http://localhost:3000';
+     if (server == null) return 'https://localhost:3000';
+     
      String ip = server.ip;
-     if (!ip.startsWith('http')) ip = 'http://$ip';
+     if (!ip.startsWith('http')) ip = 'https://$ip';
+     
+     if (ip.endsWith('/')) ip = ip.substring(0, ip.length - 1);
      return ip;
   }
 
@@ -26,7 +34,9 @@ class ApiService {
     final server = ServerManager().activeServer;
     return {
       'Content-Type': 'application/json',
-      if (server != null && server.apiKey.isNotEmpty) 'x-api-key': server.apiKey,
+      'x-device-id': ServerManager().deviceId,
+      'x-device-name': ServerManager().deviceName,
+      if (server != null && server.apiKey.isNotEmpty) 'x-secret-key': server.apiKey,
     };
   }
   
@@ -41,8 +51,12 @@ class ApiService {
     socket = IO.io(socketUrl, IO.OptionBuilder()
         .setTransports(['websocket'])
         .enableAutoConnect()
-        .setAuth({'token': server?.apiKey}) // Send key in handshake auth
-        .setExtraHeaders(server?.apiKey != null ? {'x-api-key': server!.apiKey} : {}) // Fallback
+        .setAuth({'token': server?.apiKey, 'deviceId': ServerManager().deviceId}) // Send key in handshake auth
+        .setExtraHeaders({
+            'x-device-id': ServerManager().deviceId,
+            'x-device-name': ServerManager().deviceName,
+            if (server?.apiKey != null) 'x-secret-key': server!.apiKey 
+        }) 
         .build());
   }
 

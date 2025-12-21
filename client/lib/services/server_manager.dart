@@ -1,5 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
+import 'package:device_info_plus/device_info_plus.dart';
 import '../models/server_config.dart';
 
 class ServerManager {
@@ -12,9 +15,16 @@ class ServerManager {
 
   List<ServerConfig> get servers => List.unmodifiable(_servers);
   ServerConfig? get activeServer => _activeServer;
+  
+  String _deviceId = '';
+  String get deviceId => _deviceId;
+  
+  String _deviceName = 'Unknown Device';
+  String get deviceName => _deviceName;
 
   static const String _serversKey = 'saved_servers';
   static const String _activeServerKey = 'active_server_index';
+  static const String _deviceIdKey = 'device_id';
 
   Function()? onServerChanged;
 
@@ -25,6 +35,37 @@ class ServerManager {
     if (serversJson != null) {
       final List<dynamic> decoded = json.decode(serversJson);
       _servers = decoded.map((json) => ServerConfig.fromJson(json)).toList();
+    }
+    
+    // Load or Generate Device ID
+    String? id = prefs.getString(_deviceIdKey);
+    if (id == null) {
+      id = const Uuid().v4();
+      await prefs.setString(_deviceIdKey, id);
+    }
+    _deviceId = id;
+    
+    // Fetch Device Name
+    DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
+    try {
+      if (Platform.isAndroid) {
+        AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
+        _deviceName = androidInfo.model;
+      } else if (Platform.isIOS) {
+        IosDeviceInfo iosInfo = await deviceInfo.iosInfo;
+        _deviceName = iosInfo.utsname.machine;
+      } else if (Platform.isMacOS) {
+        MacOsDeviceInfo macInfo = await deviceInfo.macOsInfo;
+        _deviceName = macInfo.computerName;
+      } else if (Platform.isLinux) {
+        LinuxDeviceInfo linuxInfo = await deviceInfo.linuxInfo;
+        _deviceName = linuxInfo.name;
+      } else if (Platform.isWindows) {
+        WindowsDeviceInfo winInfo = await deviceInfo.windowsInfo;
+        _deviceName = winInfo.computerName;
+      }
+    } catch (e) {
+      _deviceName = 'Generic Device';
     }
 
     // Default server if none exists or first launch 

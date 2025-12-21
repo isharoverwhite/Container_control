@@ -18,23 +18,25 @@ class AnsiParser {
 
     // Regex for ANSI escape codes
     final ansiRegex = RegExp(r'\x1B\[[0-?]*[ -/]*[@-~]');
+    // Regex for control characters (Docker headers, etc) - keep \n
+    final controlRegex = RegExp(r'[\x00-\x09\x0B-\x1F\x7F]');
 
     final spans = <TextSpan>[];
 
     text.split('\n').forEach((line) {
-      // For now, just strip to clean up the display as requested "fix format"
-      // often means removing garbage characters.
-      // Full color support requires a dedicated specialized widget/parser not easily written in one go.
-      // But we can try to detect "Error" or "Info" keywords for basic coloring.
+      var cleanLine = line.replaceAll(ansiRegex, '').replaceAll(controlRegex, '');
+      if (cleanLine.isEmpty) return; // Skip empty lines after cleaning
 
-      final cleanLine = line.replaceAll(ansiRegex, '');
-      Color color = Colors.greenAccent; // Default terminal look
+      Color color = Colors.white; 
 
       if (cleanLine.toLowerCase().contains('error') ||
-          cleanLine.toLowerCase().contains('exception')) {
+          cleanLine.toLowerCase().contains('exception') || 
+          cleanLine.toLowerCase().contains('fatal')) {
         color = Colors.redAccent;
       } else if (cleanLine.toLowerCase().contains('warn')) {
         color = Colors.orangeAccent;
+      } else if (cleanLine.toLowerCase().contains('info')) {
+        color = Colors.blueAccent;
       }
 
       spans.add(

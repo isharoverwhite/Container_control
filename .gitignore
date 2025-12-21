@@ -13,3 +13,7 @@ client/linux/flutter/ephemeral
 .flutter-plugins
 .flutter-plugins-dependencies
 .packages
+server/cert.pem
+server/key.pem
+server/Dockerfile
+server/connection_logs.csv

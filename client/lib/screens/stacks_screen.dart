@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:code_text_field/code_text_field.dart';
+import 'package:highlight/languages/yaml.dart';
+import 'package:flutter_highlight/themes/monokai.dart';
 import '../../widgets/square_scaling_spinner.dart';
 import '../services/api_service.dart';
 import '../services/api_service.dart';
@@ -15,6 +18,7 @@ class StacksScreen extends StatefulWidget {
 class _StacksScreenState extends State<StacksScreen> {
   final ApiService _apiService = ApiService();
   late Future<List<dynamic>> _stacksFuture;
+  final Set<String> _loadingStacks = {};
 
   @override
   void initState() {
@@ -45,26 +49,51 @@ class _StacksScreenState extends State<StacksScreen> {
   }
 
   Future<void> _performStackAction(String name, String action) async {
+    setState(() {
+      _loadingStacks.add(name);
+    });
+
+    String? error;
     try {
       await _apiService.controlStack(name, action);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-             SnackBar(content: Text('Stack $action triggered')),
-          );
-        }
-      _refreshStacks();
     } catch (e) {
-      if (mounted) {
+      error = e.toString();
+    }
+
+    // 1. Stop Loading State
+    if (mounted) {
+      setState(() {
+        _loadingStacks.remove(name);
+      });
+    }
+
+    // 2. Refresh List
+    _refreshStacks();
+
+    // 3. Notification
+    if (mounted) {
+      if (error != null) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Error: $e')));
+        ).showSnackBar(SnackBar(content: Text('Error: $error'), backgroundColor: Colors.redAccent));
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+           SnackBar(
+             content: Text('Stack action "$action" completed'), 
+             backgroundColor: const Color(0xFF00E676),
+           ),
+        );
       }
     }
   }
 
   void _showCreateDialog() {
     final nameController = TextEditingController();
-    final contentController = TextEditingController();
+    // Initialize CodeController
+    final codeController = CodeController(
+      text: '',
+      language: yaml,
+    );
 
     showDialog(
       context: context,
@@ -77,86 +106,96 @@ class _StacksScreenState extends State<StacksScreen> {
           child: Container(
             width: 600, // wider on desktop
             padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Create Stack',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                TextField(
-                  controller: nameController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: const InputDecoration(
-                    labelText: 'Stack Name',
-                    labelStyle: TextStyle(color: Colors.white54),
-                    border: OutlineInputBorder(),
-                    enabledBorder: OutlineInputBorder(
-                      borderSide: BorderSide(color: Colors.white24),
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Create Stack',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
                     ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: contentController,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontFamily: 'monospace',
-                  ),
-                  maxLines: 10,
-                  decoration: const InputDecoration(
-                    labelText: 'Docker Compose Content',
-                    alignLabelWithHint: true,
-                    labelStyle: TextStyle(color: Colors.white54),
-                    border: OutlineInputBorder(),
-                    enabledBorder: OutlineInputBorder(
-                      borderSide: BorderSide(color: Colors.white24),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    TextButton(
-                      onPressed: () => Navigator.pop(context),
-                      child: const Text('Cancel'),
-                    ),
-                    const SizedBox(width: 16),
-                    ElevatedButton(
-                      onPressed: () async {
-                        try {
-                          await _apiService.createStack(
-                            nameController.text,
-                            contentController.text,
-                          );
-                          if (context.mounted) {
-                            Navigator.pop(context);
-                            _refreshStacks();
-                          }
-                        } catch (e) {
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('Error: $e')),
-                            );
-                          }
-                        }
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF00E5FF),
-                        foregroundColor: Colors.black,
+                  const SizedBox(height: 24),
+                  TextField(
+                    controller: nameController,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                      labelText: 'Stack Name',
+                      labelStyle: TextStyle(color: Colors.white54),
+                      border: OutlineInputBorder(),
+                      enabledBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.white24),
                       ),
-                      child: const Text('Deploy'),
                     ),
-                  ],
-                ),
-              ],
+                  ),
+                  const SizedBox(height: 16),
+                  
+                  // Code Field Header
+                  const Text('Docker Compose Content:', style: TextStyle(color: Colors.white70)),
+                  const SizedBox(height: 8),
+
+                  CodeTheme(
+                    data: CodeThemeData(styles: monokaiTheme),
+                    child: Container(
+                         decoration: BoxDecoration(
+                              border: Border.all(color: Colors.white24),
+                              borderRadius: BorderRadius.circular(4),
+                              color: const Color(0xFF272822), // Monokai bg
+                         ),
+                         child: CodeField(
+                            controller: codeController,
+                            textStyle: const TextStyle(fontFamily: 'monospace', fontSize: 13),
+                            lineNumberStyle: const LineNumberStyle(
+                              textStyle: TextStyle(color: Colors.white30, fontSize: 13),
+                              width: 42,
+                              margin: 4,
+                            ),
+                         ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 24),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(context),
+                        child: const Text('Cancel'),
+                      ),
+                      const SizedBox(width: 16),
+                      ElevatedButton(
+                        onPressed: () async {
+                          try {
+                            await _apiService.createStack(
+                              nameController.text,
+                              codeController.text,
+                            );
+                            if (context.mounted) {
+                              Navigator.pop(context);
+                              _refreshStacks();
+                            }
+                          } catch (e) {
+                            if (context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('Error: $e')),
+                              );
+                            }
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF00E5FF),
+                          foregroundColor: Colors.black,
+                        ),
+                        child: const Text('Deploy'),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
         );
@@ -244,7 +283,13 @@ class _StacksScreenState extends State<StacksScreen> {
                     ),
                   ),
                   // subtitle: Text(status, style: TextStyle(color: Colors.white38)),
-                  trailing: Row(
+                  trailing: _loadingStacks.contains(name)
+                     ? const SizedBox(
+                         width: 24, 
+                         height: 24, 
+                         child: SquareScalingSpinner(size: 24, color: Colors.purpleAccent)
+                       ) 
+                     : Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       IconButton(

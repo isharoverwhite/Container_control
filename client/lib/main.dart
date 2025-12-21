@@ -4,29 +4,76 @@ import 'services/notification_service.dart';
 import 'services/api_service.dart';
 
 import 'services/server_manager.dart';
+import 'screens/onboarding_screen.dart';
+import 'screens/welcome_screen.dart';
+import 'dart:io';
+
+class DevHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    return super.createHttpClient(context)
+      ..badCertificateCallback = (X509Certificate cert, String host, int port) => true;
+  }
+}
 
 final GlobalKey<ScaffoldMessengerState> rootScaffoldMessengerKey =
     GlobalKey<ScaffoldMessengerState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  HttpOverrides.global = DevHttpOverrides();
   await ServerManager().init();
   await NotificationService().init();
   runApp(const MyApp());
 }
 
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  late final ApiService _apiService;
+
+  @override
+  void initState() {
+    super.initState();
+    _apiService = ApiService();
+    _setupSocketListener();
+  }
+
+  @override
+  void dispose() {
+    _apiService.socket.dispose();
+    super.dispose();
+  }
+
+  void _setupSocketListener() {
+    // Ensure socket is connected or connects
+    _apiService.socket.on('action_status', (data) {
+      final type = data['type'];
+      final message = data['message'];
+
+      if (rootScaffoldMessengerKey.currentState != null) {
+        rootScaffoldMessengerKey.currentState!.showSnackBar(
+          SnackBar(
+            content: Text(message),
+            backgroundColor: type == 'error' ? Colors.redAccent : const Color(0xFF00E676),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    });
+  }
 
   // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
-    // Setup global socket listener once
-    _setupSocketListener();
-
     return MaterialApp(
       scaffoldMessengerKey: rootScaffoldMessengerKey,
-      title: 'Experience: Container Controller',
+      title: 'Container Control',
       debugShowCheckedModeBanner: false,
       themeMode: ThemeMode.dark,
       darkTheme: ThemeData(
@@ -58,26 +105,7 @@ class MyApp extends StatelessWidget {
         ),
         useMaterial3: true,
       ),
-      home: const HomeScreen(),
+      home: const WelcomeScreen(),
     );
-  }
-
-  void _setupSocketListener() {
-    final api = ApiService();
-    // Ensure socket is connected or connects
-    api.socket.on('action_status', (data) {
-      final type = data['type'];
-      final message = data['message'];
-
-      if (rootScaffoldMessengerKey.currentState != null) {
-        rootScaffoldMessengerKey.currentState!.showSnackBar(
-          SnackBar(
-            content: Text(message),
-            backgroundColor: type == 'error' ? Colors.redAccent : const Color(0xFF00E676),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    });
   }
 }

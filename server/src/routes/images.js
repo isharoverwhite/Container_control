@@ -77,12 +77,41 @@ router.delete('/:id', (req, res) => {
 
     (async () => {
         try {
+            // Proactive check
             const image = docker.getImage(id);
+            let fullImageId = id;
+            try {
+                const imageInfo = await image.inspect();
+                fullImageId = imageInfo.Id;
+            } catch (e) {
+                // If inspect fails, it might not exist, let remove() handle it
+            }
+
+            const containers = await docker.listContainers({ all: true });
+            const conflict = containers.find(c => c.ImageID === fullImageId);
+
+            if (conflict) {
+                const name = conflict.Names && conflict.Names.length > 0
+                    ? conflict.Names[0].replace(/^\//, '')
+                    : conflict.Id.substring(0, 12);
+
+                const errorMessage = `image has been used by container [${name}]`;
+                global.io.emit('action_status', { type: 'error', message: errorMessage, id });
+                return;
+            }
+
             await image.remove({ force: force });
             global.io.emit('action_status', { type: 'success', message: `Image removed`, id });
             global.io.emit('images_changed');
         } catch (error) {
-            global.io.emit('action_status', { type: 'error', message: `Remove image failed: ${error.message}`, id });
+            let errorMessage = error.message;
+            if (error.statusCode === 409 || errorMessage.includes('conflict')) {
+                const match = errorMessage.match(/container\s+([a-fA-F0-9]{12,})/);
+                if (match && match[1]) {
+                    errorMessage = `image has been used by container ${match[1]}`;
+                }
+            }
+            global.io.emit('action_status', { type: 'error', message: `Remove image failed: ${errorMessage}`, id });
         }
     })();
 });

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../widgets/responsive_layout.dart';
+import '../services/api_service.dart';
 
 class LogsScreen extends StatefulWidget {
   final String containerId;
@@ -12,6 +13,7 @@ class LogsScreen extends StatefulWidget {
 }
 
 class _LogsScreenState extends State<LogsScreen> {
+  final ApiService _apiService = ApiService();
   late IO.Socket socket;
   final ScrollController _scrollController = ScrollController();
   final List<String> _logs = [];
@@ -23,28 +25,38 @@ class _LogsScreenState extends State<LogsScreen> {
   }
 
   void _connectSocket() {
-    socket = IO.io('http://localhost:3000', <String, dynamic>{
-      'transports': ['websocket'],
-      'autoConnect': false,
-    });
-
-    socket.connect();
+    // Use ApiService's socket as it already has correct config/headers/auth
+    // But we need to make sure we don't mess up other listeners if shared.
+    // ApiService creates a NEW socket instance in constructor, so it's safe to use this instance for this screen.
+    socket = _apiService.socket;
 
     socket.onConnect((_) {
       print('Connected to socket');
-      socket.emit('attach-container', widget.containerId);
+      socket.emit('subscribe_logs', widget.containerId);
     });
 
-    socket.on('container-log', (data) {
+    socket.on('log_chunk', (data) {
       if (mounted) {
         setState(() {
-          _logs.add(data.toString());
+          // data is expected to be { containerId, chunk }
+          if (data is Map && data['chunk'] != null) {
+               _logs.add(data['chunk'].toString());
+          } else {
+               _logs.add(data.toString());
+          }
         });
         _scrollToBottom();
       }
     });
 
     socket.onDisconnect((_) => print('Disconnected from socket'));
+    
+    if (!socket.connected) {
+        socket.connect();
+    } else {
+        // If already connected (reused), emit immediately
+        socket.emit('subscribe_logs', widget.containerId);
+    }
   }
 
   void _scrollToBottom() {

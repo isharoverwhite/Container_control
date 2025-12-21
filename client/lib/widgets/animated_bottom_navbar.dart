@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 
 class AnimatedBottomNavBar extends StatelessWidget {
   final int currentIndex;
+  final ValueChanged<int> onTap;
+  final List<BottomNavigationBarItem> items;
+  final Color? backgroundColor;
+  final Color? selectedItemColor;
+  final Color? unselectedItemColor;
   final Function(int)? onLongPress;
 
   const AnimatedBottomNavBar({

@@ -43,6 +43,7 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
   final TextEditingController _dnsSecController = TextEditingController();
   List<dynamic> _availableNetworks = [];
   List<dynamic> _availableVolumes = [];
+  List<String> _availableImages = [];
   Map<String, dynamic>? _systemInfo;
 
   // Resources
@@ -68,6 +69,7 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
     try {
       final nets = await _apiService.getNetworks();
       final vols = await _apiService.getVolumes();
+      final imgs = await _apiService.getImages();
       final info = await _apiService.getSystemInfo();
       setState(() {
         _availableNetworks = nets;
@@ -77,6 +79,15 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
         } else if (vols is Map && vols['Volumes'] != null) {
           _availableVolumes = vols['Volumes'];
         }
+        _availableImages = imgs.map((e) {
+             final tags = e['RepoTags'] as List?;
+             if (tags != null && tags.isNotEmpty) {
+                 return tags.first.toString();
+             }
+             // ID fallback
+             final id = e['Id'] as String? ?? 'Unknown';
+             return id.length > 12 ? id.substring(0, 12) : id;
+        }).toList();
         _systemInfo = info;
       });
     } catch (e) {
@@ -184,15 +195,23 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Container created successfully')),
+          const SnackBar(
+            content: Text('Container created successfully'),
+            backgroundColor: Color(0xFF00E676),
+            behavior: SnackBarBehavior.floating,
+          ),
         );
         Navigator.pop(context, true);
       }
     } catch (e) {
       if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
     }
   }
 
@@ -220,6 +239,7 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
             icon: const Icon(Icons.check, color: Color(0xFF00E676)),
             onPressed: _createContainer,
           ),
+          const SizedBox(width: 16), // Spacer fix
         ],
       ),
       body: Form(
@@ -244,11 +264,75 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
       children: [
         _buildInput(_nameController, 'Container Name', 'my-container'),
         const SizedBox(height: 16),
-        _buildInput(
-          _imageController,
-          'Image (Required)',
-          'nginx:latest',
-          required: true,
+        // Image Input with Autocomplete
+        Autocomplete<String>(
+            initialValue: TextEditingValue(text: _imageController.text),
+            optionsBuilder: (TextEditingValue textEditingValue) {
+                if (textEditingValue.text == '') {
+                    return const Iterable<String>.empty();
+                }
+                return _availableImages.where((String option) {
+                    return option.toLowerCase().contains(textEditingValue.text.toLowerCase());
+                });
+            },
+            onSelected: (String selection) {
+                _imageController.text = selection;
+            },
+            fieldViewBuilder: (context, textEditingController, focusNode, onFieldSubmitted) {
+                 // Sync base controller if user types
+                 textEditingController.addListener(() {
+                     _imageController.text = textEditingController.text;
+                 });
+                 // If there's an initial value (from edit/nav), ensure the field shows it.
+                 // Note: Autocomplete's textEditingController is separate, we need to init it if not done by initialValue.
+                 return TextFormField(
+                    controller: textEditingController,
+                    focusNode: focusNode,
+                    onFieldSubmitted: (String value) {
+                        onFieldSubmitted();
+                    },
+                    style: const TextStyle(color: Colors.white),
+                    decoration: const InputDecoration(
+                        labelText: 'Image (Required)',
+                        hintText: 'nginx:latest',
+                        hintStyle: TextStyle(color: Colors.white24),
+                        labelStyle: TextStyle(color: Colors.white70),
+                        enabledBorder: UnderlineInputBorder(
+                          borderSide: BorderSide(color: Colors.white10),
+                        ),
+                        focusedBorder: UnderlineInputBorder(
+                          borderSide: BorderSide(color: Color(0xFF00E5FF)),
+                        ),
+                    ),
+                    validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
+                );
+            },
+            optionsViewBuilder: (context, onSelected, options) {
+                 return Align(
+                    alignment: Alignment.topLeft,
+                    child: Material(
+                        elevation: 4.0,
+                        color: const Color(0xFF2C2C2C),
+                        child: SizedBox(
+                            width: MediaQuery.of(context).size.width - 32, // Width minus padding
+                            child: ListView.builder(
+                                padding: EdgeInsets.zero,
+                                shrinkWrap: true,
+                                itemCount: options.length,
+                                itemBuilder: (BuildContext context, int index) {
+                                    final String option = options.elementAt(index);
+                                    return ListTile(
+                                        title: Text(option, style: const TextStyle(color: Colors.white)),
+                                        onTap: () {
+                                            onSelected(option);
+                                        },
+                                    );
+                                },
+                            ),
+                        ),
+                    ),
+                 );
+            },
         ),
         const SizedBox(height: 16),
         _buildInput(_cmdController, 'Command', 'npm start'),

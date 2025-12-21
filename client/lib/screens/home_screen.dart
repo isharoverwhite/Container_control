@@ -8,6 +8,7 @@ import '../widgets/animated_bottom_navbar.dart';
 import '../services/server_manager.dart';
 import '../services/api_service.dart';
 import '../models/server_config.dart';
+import 'onboarding_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -85,6 +86,15 @@ class _HomeScreenState extends State<HomeScreen> {
                                             onPressed: () async {
                                                 await ServerManager().removeServer(s);
                                                 setState(() {}); // Refresh dialog
+                                                
+                                                if (ServerManager().servers.isEmpty) {
+                                                     if (context.mounted) Navigator.pop(context); // Close dialog
+                                                     if (context.mounted) {
+                                                         Navigator.of(context).pushReplacement(
+                                                            MaterialPageRoute(builder: (_) => const OnboardingScreen()),
+                                                         );
+                                                     }
+                                                }
                                             },
                                         ),
                                         onTap: () async {
