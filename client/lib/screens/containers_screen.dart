@@ -21,28 +21,42 @@ class _ContainersScreenState extends State<ContainersScreen> {
   final ApiService _apiService = ApiService();
   List<ContainerModel> _containers = [];
   bool _isLoading = true;
+  bool _hasError = false;
   Timer? _refreshTimer;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   final Set<String> _loadingContainerIds = {};
+  final Set<String> _hoveredContainerIds = {};
 
   @override
   void initState() {
     super.initState();
     _refreshContainers();
     _refreshTimer = Timer.periodic(const Duration(seconds: 3), (_) => _refreshContainers(silent: true));
+    
+    // Listen for socket reconnection to auto-refresh
+    _apiService.socket.on('connect', (_) {
+      if (mounted && _hasError) {
+        print('Socket reconnected, refreshing containers...');
+        _refreshContainers();
+      }
+    });
   }
 
   @override
   void dispose() {
     _refreshTimer?.cancel();
     _searchController.dispose();
+    _apiService.socket.off('connect');
     super.dispose();
   }
 
   Future<void> _refreshContainers({bool silent = false}) async {
     if (!silent) {
-        setState(() => _isLoading = true);
+        setState(() {
+          _isLoading = true;
+          _hasError = false;
+        });
     }
     try {
       final data = await _apiService.getContainers();
@@ -51,12 +65,24 @@ class _ContainersScreenState extends State<ContainersScreen> {
         setState(() {
           _containers = list;
           _isLoading = false;
+          _hasError = false;
         });
       }
     } catch (e) {
       print('Error fetching containers: $e');
       if (mounted && !silent) {
-         setState(() => _isLoading = false);
+         setState(() {
+           _isLoading = false;
+           _hasError = true;
+         });
+         // Show toast notification for connection error
+         ScaffoldMessenger.of(context).showSnackBar(
+           const SnackBar(
+             content: Text('Cannot connect to server. Check your server now.'),
+             backgroundColor: Colors.redAccent,
+             behavior: SnackBarBehavior.floating,
+           ),
+         );
       }
     }
   }
@@ -111,7 +137,7 @@ class _ContainersScreenState extends State<ContainersScreen> {
                 if (deleteError != null) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
-                      content: Text('Error: $deleteError'),
+                      content: Text(deleteError!.replaceAll('Exception: ', '')),
                       backgroundColor: Colors.redAccent,
                       behavior: SnackBarBehavior.floating,
                     ),
@@ -189,7 +215,7 @@ class _ContainersScreenState extends State<ContainersScreen> {
        if (errorMessage != null) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error: $errorMessage'),
+            content: Text(errorMessage!.replaceAll('Exception: ', '')),
             backgroundColor: Colors.redAccent,
             behavior: SnackBarBehavior.floating,
           ),
@@ -333,9 +359,23 @@ class _ContainersScreenState extends State<ContainersScreen> {
           Expanded(
             child: _isLoading && _containers.isEmpty 
               ? const Center(child: SquareScalingSpinner(color: Color(0xFF00E5FF)))
-              : _containers.isEmpty 
-                   ? const Center(child: Text('No containers found', style: TextStyle(color: Colors.white54)))
-                   : Builder(builder: (context) {
+              : _hasError
+                   ? const Center(
+                       child: Column(
+                         mainAxisAlignment: MainAxisAlignment.center,
+                         children: [
+                           Icon(Icons.cloud_off, size: 64, color: Colors.white24),
+                           SizedBox(height: 16),
+                           Text(
+                             'Connection Error',
+                             style: TextStyle(color: Colors.white54, fontSize: 16),
+                           ),
+                         ],
+                       ),
+                     )
+                   : _containers.isEmpty 
+                        ? const Center(child: Text('No containers found', style: TextStyle(color: Colors.white54)))
+                        : Builder(builder: (context) {
                           final containers = _containers.where((container) {
                               final name = container.names.isNotEmpty
                                   ? container.names[0].toLowerCase()
@@ -364,7 +404,13 @@ class _ContainersScreenState extends State<ContainersScreen> {
                                 ? container.names[0].replaceAll('/', '')
                                 : container.id.substring(0, 12);
 
-                            return Container(
+                            
+                            final isHovered = _hoveredContainerIds.contains(container.id);
+
+                            return MouseRegion(
+                              onEnter: (_) => setState(() => _hoveredContainerIds.add(container.id)),
+                              onExit: (_) => setState(() => _hoveredContainerIds.remove(container.id)),
+                              child: Container(
                               margin: const EdgeInsets.only(bottom: 12),
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
@@ -468,15 +514,50 @@ class _ContainersScreenState extends State<ContainersScreen> {
                                 ),
                                 if (_loadingContainerIds.contains(container.id))
                                    const Padding(
-                                     padding: EdgeInsets.only(left: 16.0),
-                                     child: SquareScalingSpinner(size: 30, color: Color(0xFF00E5FF)),
-                                   ),
+                                     padding: EdgeInsets.only(left: 8.0, right: 8.0),
+                                     child: SizedBox(
+                                        width: 24, 
+                                        height: 24, 
+                                        child: SquareScalingSpinner(size: 24, color: Color(0xFF00E5FF))
+                                     ),
+                                   )
+                                else
+                                  Visibility(
+                                    visible: isHovered,
+                                    maintainSize: true, 
+                                    maintainAnimation: true,
+                                    maintainState: true,
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(left: 4.0),
+                                      child: PopupMenuButton<String>(
+                                        icon: const Icon(Icons.more_vert, color: Colors.white54, size: 20),
+                                        color: const Color(0xFF2C2C2C),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                        onSelected: (action) => _handleAction(container.id, action, container.names.first),
+                                        itemBuilder: (context) {
+                                           final isRunning = container.state == 'running';
+                                           return [
+                                             if (!isRunning)
+                                               const PopupMenuItem(value: 'start', child: Row(children:[Icon(Icons.play_arrow, color: Color(0xFF00E676), size: 20), SizedBox(width:12), Text('Start', style:TextStyle(color:Colors.white))])),
+                                             if (isRunning)
+                                               const PopupMenuItem(value: 'stop', child: Row(children:[Icon(Icons.stop, color: Color(0xFFFF5252), size: 20), SizedBox(width:12), Text('Stop', style:TextStyle(color:Colors.white))])),
+                                             const PopupMenuItem(value: 'restart', child: Row(children:[Icon(Icons.refresh, color: Colors.orangeAccent, size: 20), SizedBox(width:12), Text('Restart', style:TextStyle(color:Colors.white))])),
+                                             const PopupMenuItem(value: 'logs', child: Row(children:[Icon(Icons.terminal, color: Colors.white70, size: 20), SizedBox(width:12), Text('Logs', style:TextStyle(color:Colors.white))])),
+                                             const PopupMenuItem(value: 'duplicate', child: Row(children:[Icon(Icons.copy, color: Colors.blueAccent, size: 20), SizedBox(width:12), Text('Duplicate', style:TextStyle(color:Colors.white))])),
+                                             const PopupMenuDivider(),
+                                             const PopupMenuItem(value: 'delete', child: Row(children:[Icon(Icons.delete, color: Colors.redAccent, size: 20), SizedBox(width:12), Text('Delete', style:TextStyle(color:Colors.redAccent))])),
+                                           ];
+                                        },
+                                      ),
+                                    ),
+                                  ),
                               ],
                             ),
                           ),
                         ),
                       ),
-                    );
+                    ),
+                  );
                   },
                 );
             }),

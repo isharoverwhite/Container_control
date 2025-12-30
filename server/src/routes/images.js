@@ -55,6 +55,7 @@ router.post('/pull', async (req, res) => {
                     console.error('Pull finish error:', err);
                 } else {
                     global.io.emit('docker_pull_complete', { image, output });
+                    global.io.emit('images_changed'); // Notify clients to refresh image list
                 }
             }
 

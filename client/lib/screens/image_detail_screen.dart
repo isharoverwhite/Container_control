@@ -155,11 +155,11 @@ class _ImageDetailScreenState extends State<ImageDetailScreen> {
 
     // Start pull request (it returns immediately now)
     try {
-      await _apiService.pullImage(tagToPull);
+      await _apiService.pullImageBackground(tagToPull);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Update started in background')),
+          const SnackBar(content: Text('Update started in background - check global progress')),
         );
       }
     } catch (e) {
@@ -327,7 +327,7 @@ class _ImageDetailScreenState extends State<ImageDetailScreen> {
       if (mounted) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text('Error: $e')));
+        ).showSnackBar(SnackBar(content: Text(e.toString().replaceAll('Exception: ', '')), backgroundColor: Colors.redAccent));
       }
     }
   }

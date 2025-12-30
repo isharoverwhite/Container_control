@@ -5,6 +5,7 @@ import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../models/container_model.dart';
 import '../services/api_service.dart';
 import '../utils/ansi_parser.dart';
+import '../widgets/container_terminal.dart';
 
 class ContainerDetailScreen extends StatefulWidget {
   final ContainerModel container;
@@ -261,7 +262,7 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         appBar: AppBar(
           title: Text(
@@ -274,7 +275,8 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
             labelColor: Color(0xFF00E5FF),
             unselectedLabelColor: Colors.white54,
             tabs: [
-              Tab(icon: Icon(Icons.terminal), text: 'Logs'),
+              Tab(icon: Icon(Icons.list_alt), text: 'Logs'),
+              Tab(icon: Icon(Icons.terminal), text: 'Terminal'),
               Tab(icon: Icon(Icons.settings), text: 'Settings'),
             ],
           ),
@@ -472,7 +474,10 @@ class _ContainerDetailScreenState extends State<ContainerDetailScreen> {
                     ),
                   ),
 
-                  // Tab 2: Settings
+                  // Tab 2: Terminal
+                  ContainerTerminal(containerId: widget.container.id),
+
+                  // Tab 3: Settings
                   if (_isLoading && _containerData == null)
                      const Center(child: CircularProgressIndicator(color: Color(0xFF00E5FF)))
                   else Builder(builder: (context) {

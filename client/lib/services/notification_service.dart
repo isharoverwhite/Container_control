@@ -25,6 +25,29 @@ class NotificationService {
         );
 
     await flutterLocalNotificationsPlugin.initialize(initializationSettings);
+
+    // Request notification permission for Android 13+ (API 33+)
+    final AndroidFlutterLocalNotificationsPlugin? androidImplementation =
+        flutterLocalNotificationsPlugin.resolvePlatformSpecificImplementation<
+            AndroidFlutterLocalNotificationsPlugin>();
+
+    if (androidImplementation != null) {
+      // Request permission for Android 13+
+      await androidImplementation.requestNotificationsPermission();
+      
+      // Create notification channel for Android 8.0+ (API 26+)
+      const AndroidNotificationChannel channel = AndroidNotificationChannel(
+        'download_channel', // id
+        'Downloads', // name
+        description: 'Show download progress for Docker images',
+        importance: Importance.high,
+        enableVibration: false,
+        playSound: false,
+      );
+
+      await androidImplementation.createNotificationChannel(channel);
+    }
+
     _initialized = true;
   }
 
@@ -34,6 +57,7 @@ class NotificationService {
     String title,
     String body,
   ) async {
+    print('NotificationService: Showing progress $progress% for $id ($title)');
     final AndroidNotificationDetails androidPlatformChannelSpecifics =
         AndroidNotificationDetails(
           'download_channel',
@@ -45,6 +69,8 @@ class NotificationService {
           maxProgress: 100,
           progress: progress,
           onlyAlertOnce: true,
+          ongoing: true, // Prevent dismissal during download
+          autoCancel: false, // Keep notification until download completes
         );
 
     final LinuxNotificationDetails linuxPlatformChannelSpecifics =
@@ -64,6 +90,7 @@ class NotificationService {
   }
 
   Future<void> showDone(int id, String title, String body) async {
+    print('NotificationService: Showing done for $id ($title)');
     final AndroidNotificationDetails androidPlatformChannelSpecifics =
         AndroidNotificationDetails(
           'download_channel',
@@ -72,6 +99,8 @@ class NotificationService {
           importance: Importance.defaultImportance,
           priority: Priority.defaultPriority,
           showProgress: false,
+          ongoing: false, // Allow dismissal when complete
+          autoCancel: true, // User can swipe to dismiss
         );
 
     final LinuxNotificationDetails linuxPlatformChannelSpecifics =

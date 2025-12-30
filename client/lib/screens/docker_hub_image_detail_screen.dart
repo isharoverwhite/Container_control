@@ -1,6 +1,6 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../../widgets/square_scaling_spinner.dart';
-import 'dart:convert';
 import '../services/api_service.dart';
 import '../services/notification_service.dart';
 
@@ -21,11 +21,142 @@ class _DockerHubImageDetailScreenState
   List<String> _tags = [];
   String _fullDescription = '';
   bool _isLoadingDetails = true;
+  
+  // Pull tracking
+  int? _currentPullNotificationId;
+  String? _currentPullingImage;
+  final Map<String, Map<String, int>> _layers = {};
+  int _lastPercent = 0;
+  DateTime _lastUpdate = DateTime.now();
+  Timer? _pullTimeoutTimer;
 
   @override
   void initState() {
     super.initState();
     _fetchDetails();
+    _setupSocketListeners();
+  }
+  
+  @override
+  void dispose() {
+    _cleanupSocketListeners();
+    super.dispose();
+  }
+  
+  void _setupSocketListeners() {
+    _apiService.socket.on('docker_pull_progress', _onPullProgress);
+    _apiService.socket.on('docker_pull_complete', _onPullComplete);
+    _apiService.socket.on('docker_pull_error', _onPullError);
+  }
+  
+  void _cleanupSocketListeners() {
+    _apiService.socket.off('docker_pull_progress', _onPullProgress);
+    _apiService.socket.off('docker_pull_complete', _onPullComplete);
+    _apiService.socket.off('docker_pull_error', _onPullError);
+    _pullTimeoutTimer?.cancel();
+    _pullTimeoutTimer = null;
+  }
+  
+  void _onPullProgress(dynamic data) {
+    print('DEBUG: Received docker_pull_progress event: ${data.toString()}');
+    if (_currentPullingImage == null || data['image'] != _currentPullingImage) {
+      print('DEBUG: Ignoring progress - current: $_currentPullingImage, event: ${data['image']}');
+      return;
+    }
+    
+    final event = data['event'];
+    final status = event['status'] ?? '';
+    final id = event['id'];
+
+    if (status == 'Downloading' || status == 'Extracting') {
+      if (id != null &&
+          event['progressDetail'] != null &&
+          event['progressDetail']['total'] != null) {
+        final current = event['progressDetail']['current'] as int;
+        final total = event['progressDetail']['total'] as int;
+        _layers[id] = {'current': current, 'total': total};
+      }
+    }
+
+    int totalBytes = 0;
+    int currentBytes = 0;
+    _layers.forEach((key, value) {
+      currentBytes += value['current']!;
+      totalBytes += value['total']!;
+    });
+
+    int percent = 0;
+    if (totalBytes > 0) {
+      percent = ((currentBytes / totalBytes) * 100).toInt();
+    }
+
+    final now = DateTime.now();
+    if (now.difference(_lastUpdate).inSeconds >= 1 && percent != _lastPercent) {
+      _lastUpdate = now;
+      _lastPercent = percent;
+
+      if (_currentPullNotificationId != null) {
+        NotificationService().showProgress(
+          _currentPullNotificationId!,
+          percent,
+          'Pulling $_currentPullingImage',
+          'Downloading... $percent%',
+        );
+      }
+    }
+  }
+  
+  void _onPullError(dynamic data) {
+    print('DEBUG: Received docker_pull_error event: ${data.toString()}');
+    if (_currentPullingImage == null || data['image'] != _currentPullingImage) {
+      print('DEBUG: Ignoring error - current: $_currentPullingImage, event: ${data['image']}');
+      return;
+    }
+    
+    final error = data['error'] ?? 'Unknown error';
+    if (_currentPullNotificationId != null) {
+      NotificationService().showDone(
+        _currentPullNotificationId!,
+        'Pull Failed',
+        'Error: $error',
+      );
+    }
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Pull failed: $error')),
+      );
+    }
+    
+    _currentPullingImage = null;
+    _currentPullNotificationId = null;
+    _layers.clear();
+  }
+  
+  void _onPullComplete(dynamic data) {
+    print('DEBUG: Received docker_pull_complete event: ${data.toString()}');
+    if (_currentPullingImage == null || data['image'] != _currentPullingImage) {
+      print('DEBUG: Ignoring complete - current: $_currentPullingImage, event: ${data['image']}');
+      return;
+    }
+    
+    if (_currentPullNotificationId != null) {
+      NotificationService().showDone(
+        _currentPullNotificationId!,
+        'Pull Complete',
+        '$_currentPullingImage is ready',
+      );
+    }
+    
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Pull of $_currentPullingImage complete')),
+      );
+    }
+    
+    _currentPullingImage = null;
+    _currentPullNotificationId = null;
+    _layers.clear();
   }
 
   Future<void> _fetchDetails() async {
@@ -61,12 +192,14 @@ class _DockerHubImageDetailScreenState
     final tag = _selectedTag ?? 'latest';
     final fullImageName = '$repoName:$tag';
 
-    // Start pull and handle stream
-    final notificationId = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-    final NotificationService ns = NotificationService();
-
-    // Map to track progress of each layer: layerId -> {current, total}
-    final Map<String, Map<String, int>> layers = {};
+    _currentPullNotificationId = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    _currentPullingImage = fullImageName;
+    _layers.clear();
+    _lastPercent = 0;
+    _lastUpdate = DateTime.now();
+    
+    print('DEBUG: Starting pull for image: $fullImageName');
+    print('DEBUG: Set _currentPullingImage to: $_currentPullingImage');
 
     try {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -75,84 +208,57 @@ class _DockerHubImageDetailScreenState
         ),
       );
 
-      final stream = await _apiService.pullImage(fullImageName);
-      int lastPercent = 0;
-      DateTime lastUpdate = DateTime.now();
-
-      // Show initial starting notification
-      await ns.showProgress(
-        notificationId,
+      // Show initial notification
+      await NotificationService().showProgress(
+        _currentPullNotificationId!,
         0,
         'Pulling $fullImageName',
         'Starting...',
       );
 
-      await for (final line in stream) {
-        if (line.trim().isEmpty) continue;
-        try {
-          final data = json.decode(line);
-          final status = data['status'] ?? '';
-          final id = data['id'];
-
-          if (status == 'Downloading' || status == 'Extracting') {
-            if (id != null &&
-                data['progressDetail'] != null &&
-                data['progressDetail']['total'] != null) {
-              final current = data['progressDetail']['current'] as int;
-              final total = data['progressDetail']['total'] as int;
-              layers[id] = {'current': current, 'total': total};
-            }
-          }
-
-          int totalBytes = 0;
-          int currentBytes = 0;
-          layers.forEach((key, value) {
-            currentBytes += value['current']!;
-            totalBytes += value['total']!;
-          });
-
-          int percent = 0;
-          if (totalBytes > 0) {
-            percent = ((currentBytes / totalBytes) * 100).toInt();
-          }
-
-          // Throttle updates: Update only if 1 second passed AND percent changed
-          final now = DateTime.now();
-          if (now.difference(lastUpdate).inSeconds >= 1 &&
-              percent != lastPercent) {
-            lastUpdate = now;
-            lastPercent = percent;
-
-            await ns.showProgress(
-              notificationId,
-              percent,
-              'Pulling $fullImageName',
-              'Downloading... $percent%',
+      // Trigger the pull on server
+      print('DEBUG: Socket connected: ${_apiService.socket.connected}');
+      await _apiService.pullImageBackground(fullImageName);
+      
+      // Set a timeout (10 minutes) in case pull gets stuck
+      _pullTimeoutTimer?.cancel();
+      _pullTimeoutTimer = Timer(const Duration(minutes: 10), () {
+        if (_currentPullingImage == fullImageName && _currentPullNotificationId != null) {
+          NotificationService().showDone(
+            _currentPullNotificationId!,
+            'Pull Timeout',
+            'Pull took too long - check server logs',
+          );
+          
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Pull timeout - operation took too long')),
             );
           }
-        } catch (e) {
-          print('Error parsing line: $e');
+          
+          _currentPullingImage = null;
+          _currentPullNotificationId = null;
+          _layers.clear();
         }
-      }
+      });
 
-      await ns.showDone(
-        notificationId,
-        'Pull Complete',
-        '$fullImageName is ready',
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Pull of $fullImageName complete')),
+    } catch (e) {
+      if (_currentPullNotificationId != null) {
+        await NotificationService().showDone(
+          _currentPullNotificationId!,
+          'Pull Failed',
+          'Error: $e',
         );
       }
-    } catch (e) {
-      await ns.showDone(notificationId, 'Pull Failed', 'Error: $e');
       print('Pull error: $e');
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Pull failed: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Pull failed: $e')),
+        );
       }
+      _currentPullingImage = null;
+      _currentPullNotificationId = null;
+      _pullTimeoutTimer?.cancel();
     }
   }
 
@@ -286,6 +392,27 @@ class _DockerHubImageDetailScreenState
             ),
 
             const SizedBox(height: 24),
+            
+            // Pull Image Button - moved here for better UX
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton.icon(
+                onPressed: _pullImage,
+                icon: const Icon(Icons.download),
+                label: const Text('Pull Image'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF00E5FF),
+                  foregroundColor: Colors.black,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  elevation: 4,
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 24),
 
             const Text(
               'Overview',
@@ -309,25 +436,6 @@ class _DockerHubImageDetailScreenState
                         height: 1.5,
                       ),
                     ),
-            ),
-
-            const SizedBox(height: 32),
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton.icon(
-                onPressed: _pullImage,
-                icon: const Icon(Icons.download),
-                label: const Text('Pull Image'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF00E5FF),
-                  foregroundColor: Colors.black,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  elevation: 4,
-                ),
-              ),
             ),
           ],
         ),

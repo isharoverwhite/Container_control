@@ -21,6 +21,20 @@ class _VolumesScreenState extends State<VolumesScreen> {
   void initState() {
     super.initState();
     _refreshVolumes();
+    
+    // Listen for socket reconnection to auto-refresh
+    _apiService.socket.on('connect', (_) {
+      if (mounted) {
+        print('Socket reconnected, refreshing volumes...');
+        _refreshVolumes();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _apiService.socket.off('connect');
+    super.dispose();
   }
 
   void _refreshVolumes() {
@@ -68,7 +82,7 @@ class _VolumesScreenState extends State<VolumesScreen> {
         if (mounted) {
           if (error != null) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Error: $error'), backgroundColor: Colors.redAccent),
+              SnackBar(content: Text(error!.replaceAll('Exception: ', '')), backgroundColor: Colors.redAccent),
             );
           } else {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -216,7 +230,32 @@ class _VolumesScreenState extends State<VolumesScreen> {
             );
           }
           if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
+            // Show toast notification for connection error
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Cannot connect to server. Check your server now.'),
+                    backgroundColor: Colors.redAccent,
+                    behavior: SnackBarBehavior.floating,
+                  ),
+                );
+              }
+            });
+            // Show empty state instead of error
+            return const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.cloud_off, size: 64, color: Colors.white24),
+                  SizedBox(height: 16),
+                  Text(
+                    'Connection Error',
+                    style: TextStyle(color: Colors.white54, fontSize: 16),
+                  ),
+                ],
+              ),
+            );
           }
           if (!snapshot.hasData || snapshot.data!.isEmpty) {
             return const Center(

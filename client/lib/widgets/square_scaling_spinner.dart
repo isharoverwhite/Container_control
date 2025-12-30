@@ -11,93 +11,112 @@ class SquareScalingSpinner extends StatefulWidget {
 }
 
 class _SquareScalingSpinnerState extends State<SquareScalingSpinner>
-    with TickerProviderStateMixin {
-  late List<AnimationController> _controllers;
-  late List<Animation<double>> _animations;
+    with SingleTickerProviderStateMixin {
+  late AnimationController _controller;
 
   @override
   void initState() {
     super.initState();
-    _controllers = List.generate(4, (index) {
-      return AnimationController(
-        vsync: this,
-        duration: const Duration(milliseconds: 600),
-      );
-    });
-
-    _animations = _controllers.map((controller) {
-      return Tween<double>(begin: 0.0, end: 1.0).animate(
-        CurvedAnimation(parent: controller, curve: Curves.easeInOutCubic),
-      );
-    }).toList();
-
-    _startAnimation();
-  }
-
-  void _startAnimation() async {
-    for (int i = 0; i < 4; i++) {
-      await Future.delayed(const Duration(milliseconds: 150));
-      if (mounted) {
-        _controllers[i].repeat(reverse: true);
-      }
-    }
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat();
   }
 
   @override
   void dispose() {
-    for (var controller in _controllers) {
-      controller.dispose();
-    }
+    _controller.dispose();
     super.dispose();
+  }
+
+  double _getScale(double progress, double shift) {
+    // CSS logic: 
+    // 0% -> 0.4
+    // 20% -> 1.0
+    // 40% -> 0.4
+    // 100% -> 0.4
+    // Negative Delay means we start at that point in the cycle.
+    // So effective progress = (controller.value - delay_fraction) % 1.0
+    // Note: CSS delay is negative, so we ADD to progress? 
+    // delay -0.3s means animation has ALREADY played 0.3s. So t=0.3.
+    // Yes, we add the shift.
+    
+    double t = (progress + shift) % 1.0;
+    
+    if (t < 0.2) {
+      // 0.0 to 0.2 -> 0.4 to 1.0
+      // Normalizing t to 0..1 for the interval: t / 0.2
+      // Using EaseInOut to match "ease-in-out" in CSS
+      return 0.4 + (1.0 - 0.4) * Curves.easeInOut.transform(t / 0.2);
+    } else if (t < 0.4) {
+      // 0.2 to 0.4 -> 1.0 to 0.4
+      // Normalizing t to 0..1: (t - 0.2) / 0.2
+      return 1.0 - (1.0 - 0.4) * Curves.easeInOut.transform((t - 0.2) / 0.2);
+    } else {
+      // 0.4 to 1.0 -> 0.4 constant
+      return 0.4;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final squareSize = widget.size / 2 - 4; // Space for gaps
-    final color = widget.color ?? Theme.of(context).primaryColor;
+    // Total size includes gap. 
+    // In WebUI: size=48, square ~20? Gap=1 (0.25rem).
+    // Here we can stick to the size sizing logic but maybe adjust.
+    // widget.size is total width/height.
+    // 2 squares + 1 gap.
+    // Let's say gap is fixed at 4 or proportional.
+    final double gap = 4.0;
+    final double squareSize = (widget.size - gap) / 2;
+    final Color color = widget.color ?? Theme.of(context).primaryColor;
 
-    Widget buildSquare(int index) {
-      return AnimatedBuilder(
-        animation: _animations[index],
-        builder: (context, child) {
-          // Scale from 0.0 to 1.0, Opacity from 0.5 to 1.0 (or 0.2 to 1.0)
-          final value = _animations[index].value;
-          final scale = 0.2 + (value * 0.8); 
-          final opacity = 0.4 + (value * 0.6);
-
-          return Transform.scale(
-            scale: scale,
-            child: Opacity(
-              opacity: opacity,
-              child: Container(
-                width: squareSize,
-                height: squareSize,
-                decoration: BoxDecoration(
-                  color: color,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              ),
-            ),
-          );
-        },
-      );
-    }
-
+    // CSS Delays:
+    // TL: -0.3s -> shift 0.3/1.2 = 0.25
+    // TR: -0.1s -> shift 0.1/1.2 = 0.0833
+    // BL: -0.2s -> shift 0.2/1.2 = 0.1666
+    // BR: 0s -> shift 0.0
+    
     return SizedBox(
       width: widget.size,
       height: widget.size,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [buildSquare(0), buildSquare(1)],
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [buildSquare(3), buildSquare(2)],
-          ),
-        ],
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (context, child) {
+          return Column(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _buildSquare(color, squareSize, 0.25),   // TL
+                  _buildSquare(color, squareSize, 0.0833), // TR
+                ],
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  _buildSquare(color, squareSize, 0.1666), // BL
+                  _buildSquare(color, squareSize, 0.0),    // BR
+                ],
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildSquare(Color color, double size, double shift) {
+    final scale = _getScale(_controller.value, shift);
+    return Transform.scale(
+      scale: scale,
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(4), // rounded-sm equivalent
+        ),
       ),
     );
   }

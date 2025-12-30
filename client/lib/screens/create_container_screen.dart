@@ -262,7 +262,20 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        _buildInput(_nameController, 'Container Name', 'my-container'),
+        _buildInput(
+          _nameController,
+          'Container Name',
+          'my-container',
+          validator: (value) {
+            if (value != null && value.isNotEmpty) {
+              final nameExp = RegExp(r'^[a-zA-Z0-9][a-zA-Z0-9_.-]*$');
+              if (!nameExp.hasMatch(value)) {
+                return 'Invalid format: [a-zA-Z0-9][a-zA-Z0-9_.-]';
+              }
+            }
+            return null;
+          },
+        ),
         const SizedBox(height: 16),
         // Image Input with Autocomplete
         Autocomplete<String>(
@@ -341,7 +354,21 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
         const SizedBox(height: 16),
         _buildInput(_workingDirController, 'Working Directory', '/app'),
         const SizedBox(height: 16),
-        _buildInput(_userController, 'User', '1000:1000'),
+        _buildInput(
+          _userController,
+          'User',
+          '1000:1000',
+          validator: (value) {
+            if (value != null && value.isNotEmpty) {
+              // Allow username, uid, username:group, uid:gid, etc.
+              final userExp = RegExp(r'^([a-z_][a-z0-9_-]*|\d+)(:([a-z_][a-z0-9_-]*|\d+))?$');
+              if (!userExp.hasMatch(value)) {
+                return 'Invalid format (user:group or uid:gid)';
+              }
+            }
+            return null;
+          },
+        ),
         const SizedBox(height: 16),
         DropdownButtonFormField<String>(
           value: _restartPolicy,
@@ -404,15 +431,80 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
           onChanged: (v) => setState(() => _networkMode = v!),
         ),
         const SizedBox(height: 16),
-        _buildInput(_ipv4Controller, 'IPv4 Address', '172.18.0.5'),
+        _buildInput(
+          _ipv4Controller,
+          'IPv4 Address',
+          '172.18.0.5',
+          validator: (value) {
+            if (value != null && value.isNotEmpty) {
+              final ipExp = RegExp(r'^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$');
+              if (!ipExp.hasMatch(value)) {
+                return 'Invalid IPv4 address';
+              }
+            }
+            return null;
+          },
+        ),
         const SizedBox(height: 16),
-        _buildInput(_hostnameController, 'Hostname', 'my-app'),
+        _buildInput(
+          _hostnameController,
+          'Hostname',
+          'my-app',
+          validator: (value) {
+            if (value != null && value.isNotEmpty) {
+              final hostExp = RegExp(r'^[a-zA-Z0-9][a-zA-Z0-9-]*$');
+              if (!hostExp.hasMatch(value)) {
+                return 'Invalid hostname format';
+              }
+            }
+            return null;
+          },
+        ),
         const SizedBox(height: 16),
-        _buildInput(_macController, 'MAC Address', ''),
+        _buildInput(
+          _macController,
+          'MAC Address',
+          '',
+          validator: (value) {
+            if (value != null && value.isNotEmpty) {
+              final macExp = RegExp(r'^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$');
+              if (!macExp.hasMatch(value)) {
+                return 'Invalid MAC address';
+              }
+            }
+            return null;
+          },
+        ),
         const SizedBox(height: 16),
-        _buildInput(_dnsPriController, 'Primary DNS', '8.8.8.8'),
+        _buildInput(
+          _dnsPriController,
+          'Primary DNS',
+          '8.8.8.8',
+          validator: (value) {
+             if (value != null && value.isNotEmpty) {
+              final ipExp = RegExp(r'^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$');
+              if (!ipExp.hasMatch(value)) {
+                return 'Invalid IP';
+              }
+            }
+            return null;
+          },
+        ),
         const SizedBox(height: 16),
-        _buildInput(_dnsSecController, 'Secondary DNS', '8.8.4.4'),
+        _buildInput(
+          _dnsSecController,
+          'Secondary DNS',
+          '8.8.4.4',
+           validator: (value) {
+             if (value != null && value.isNotEmpty) {
+              final ipExp = RegExp(r'^((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}$');
+              if (!ipExp.hasMatch(value)) {
+                return 'Invalid IP';
+              }
+            }
+            return null;
+          },
+        ),
       ],
     );
   }
@@ -509,6 +601,7 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
                       labelText: 'Source (Host Path)',
                       labelStyle: TextStyle(color: Colors.white54),
                     ),
+                    validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
                   ),
                 TextFormField(
                   initialValue: vol['target'],
@@ -518,6 +611,7 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
                     labelText: 'Target (Container Path)',
                     labelStyle: TextStyle(color: Colors.white54),
                   ),
+                  validator: (v) => (v == null || v.isEmpty) ? 'Required' : null,
                 ),
               ],
             ),
@@ -562,6 +656,14 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
                   onChanged: (v) => env['key'] = v,
                   style: const TextStyle(color: Colors.white),
                   decoration: const InputDecoration(labelText: 'Key'),
+                  validator: (v) {
+                    if (v != null && v.isNotEmpty) {
+                      if (!RegExp(r'^[a-zA-Z_][a-zA-Z0-9_]*$').hasMatch(v)) {
+                        return 'Invalid Key';
+                      }
+                    }
+                    return null;
+                  },
                 ),
               ),
               const SizedBox(width: 8),
@@ -616,6 +718,12 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
                   keyboardType: TextInputType.number,
                   style: const TextStyle(color: Colors.white),
                   decoration: const InputDecoration(labelText: 'Host Port'),
+                  validator: (v) {
+                    if (v != null && v.isNotEmpty) {
+                      if (int.tryParse(v) == null) return 'Invalid';
+                    }
+                    return null;
+                  },
                 ),
               ),
               const SizedBox(width: 8),
@@ -628,6 +736,12 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
                   keyboardType: TextInputType.number,
                   style: const TextStyle(color: Colors.white),
                   decoration: const InputDecoration(labelText: 'Cont. Port'),
+                  validator: (v) {
+                    if (v != null && v.isNotEmpty) {
+                      if (int.tryParse(v) == null) return 'Invalid';
+                    }
+                    return null;
+                  },
                 ),
               ),
               const SizedBox(width: 8),
@@ -758,13 +872,15 @@ class _CreateContainerScreenState extends State<CreateContainerScreen>
     String label,
     String hint, {
     bool required = false,
+    String? Function(String?)? validator,
   }) {
     return TextFormField(
       controller: controller,
       style: const TextStyle(color: Colors.white),
-      validator: required
-          ? (v) => (v == null || v.isEmpty) ? 'Required' : null
-          : null,
+      validator: validator ??
+          (required
+              ? (v) => (v == null || v.isEmpty) ? 'Required' : null
+              : null),
       decoration: InputDecoration(
         labelText: label,
         hintText: hint,

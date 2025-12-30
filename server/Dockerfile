@@ -1,29 +1,36 @@
-FROM node:18-alpine
+FROM node:20-alpine
 
-# Install system dependencies required by the server:
-# - docker-cli: To interact with the Docker Host
-# - docker-cli-compose: To support 'docker compose' commands in Stacks management
-# - openssl: To generate self-signed SSL certificates (src/index.js)
-# - pciutils: For 'lspci' command used in GPU detection functionality
-RUN apk add --no-cache \
-    docker-cli \
-    docker-cli-compose \
-    openssl \
-    pciutils
+# Install Docker CLI and Docker Compose
+RUN apk add --no-cache docker-cli docker-cli-compose openssl
 
 WORKDIR /app
 
-# Copy package files first to leverage Docker cache
+# Copy Root Dependencies
 COPY package*.json ./
+RUN npm install
 
-# Install only production dependencies
-RUN npm install --only=production
+# Copy WebUI Dependencies
+COPY services/webui/package*.json ./services/webui/
 
-# Copy the rest of the application code
+# Install WebUI Dependencies
+WORKDIR /app/services/webui
+RUN npm install
+
+# Return to root
+WORKDIR /app
+
+# Copy Source Code
 COPY . .
 
-# Expose the API port
-EXPOSE 3000
+# Build WebUI
+WORKDIR /app/services/webui
+RUN npm run build
 
-# Start the application
+# Return to root
+WORKDIR /app
+
+# Expose Ports
+EXPOSE 3000 3001 3002 3003 3004 3005 3006 3007 8080
+
+# Start Application
 CMD ["npm", "start"]

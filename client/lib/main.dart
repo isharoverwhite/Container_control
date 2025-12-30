@@ -7,6 +7,8 @@ import 'services/server_manager.dart';
 import 'screens/onboarding_screen.dart';
 import 'screens/welcome_screen.dart';
 import 'dart:io';
+import 'widgets/global_pull_progress_widget.dart';
+import 'services/pull_progress_service.dart';
 
 class DevHttpOverrides extends HttpOverrides {
   @override
@@ -16,6 +18,7 @@ class DevHttpOverrides extends HttpOverrides {
   }
 }
 
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 final GlobalKey<ScaffoldMessengerState> rootScaffoldMessengerKey =
     GlobalKey<ScaffoldMessengerState>();
 
@@ -27,6 +30,7 @@ void main() async {
   runApp(const MyApp());
 }
 
+
 class MyApp extends StatefulWidget {
   const MyApp({super.key});
 
@@ -34,20 +38,36 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends State<MyApp> {
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   late final ApiService _apiService;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _apiService = ApiService();
+    PullProgressService().init();
     _setupSocketListener();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _apiService.socket.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      print('MyApp: App resumed, ensuring socket connection...');
+      // Add slight delay to allow network stack to wake up
+      Future.delayed(const Duration(milliseconds: 500), () {
+        if (!_apiService.socket.connected) {
+           _apiService.socket.connect();
+        }
+      });
+    }
   }
 
   void _setupSocketListener() {
@@ -66,12 +86,30 @@ class _MyAppState extends State<MyApp> {
         );
       }
     });
+
+    _apiService.socket.on('force_logout', (_) async {
+      await ServerManager().removeActiveServer();
+
+      rootScaffoldMessengerKey.currentState?.showSnackBar(
+        const SnackBar(
+          content: Text('Device disconnected by Admin'),
+          backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+
+      navigatorKey.currentState?.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (context) => const WelcomeScreen()),
+        (route) => false,
+      );
+    });
   }
 
   // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: navigatorKey,
       scaffoldMessengerKey: rootScaffoldMessengerKey,
       title: 'Container Control',
       debugShowCheckedModeBanner: false,
@@ -106,6 +144,24 @@ class _MyAppState extends State<MyApp> {
         useMaterial3: true,
       ),
       home: const WelcomeScreen(),
+      builder: (context, child) {
+        return Stack(
+          children: [
+            child!,
+            Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: const GlobalPullProgressWidget(),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

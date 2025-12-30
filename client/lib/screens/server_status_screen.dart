@@ -20,6 +20,20 @@ class _ServerStatusScreenState extends State<ServerStatusScreen> {
   void initState() {
     super.initState();
     _loadInfo();
+    
+    // Listen for socket reconnection to auto-refresh
+    _apiService.socket.on('connect', (_) {
+      if (mounted && _error != null) {
+        print('Socket reconnected, refreshing server status...');
+        _loadInfo();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _apiService.socket.off('connect');
+    super.dispose();
   }
 
   Future<void> _loadInfo() async {
@@ -39,6 +53,14 @@ class _ServerStatusScreenState extends State<ServerStatusScreen> {
         setState(() {
           _error = e.toString();
         });
+        // Show toast message instead of displaying error in center
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Cannot connect to server. Check your server now.'),
+            backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -72,25 +94,12 @@ class _ServerStatusScreenState extends State<ServerStatusScreen> {
               children: [
                 _buildRow('Name', server?.name ?? 'None'),
                 _buildRow('URL', server?.ip ?? 'None'),
-                _buildRow('Status', _error != null ? 'Error' : (_loading ? 'Connecting...' : 'Connected')),
+                _buildRow('Status', _error != null ? 'Disconnected' : (_loading ? 'Connecting...' : 'Connected')),
                 if (server != null && server.apiKey.isNotEmpty)
                   _buildRow('Auth', 'Key Configured'),
               ],
             ),
             const SizedBox(height: 16),
-            if (_error != null)
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.redAccent.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.redAccent),
-                ),
-                child: Text(
-                  'Connection Error: $_error',
-                  style: const TextStyle(color: Colors.redAccent),
-                ),
-              ),
             if (_systemInfo != null) ...[
                _buildCard(
                 title: 'System Information',

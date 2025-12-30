@@ -118,4 +118,10 @@ class ServerManager {
     final String encoded = json.encode(_servers.map((s) => s.toJson()).toList());
     await prefs.setString(_serversKey, encoded);
   }
+
+  Future<void> removeActiveServer() async {
+    if (_activeServer != null) {
+      await removeServer(_activeServer!);
+    }
+  }
 }

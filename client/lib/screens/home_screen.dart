@@ -7,6 +7,7 @@ import 'server_status_screen.dart';
 import '../widgets/animated_bottom_navbar.dart';
 import '../services/server_manager.dart';
 import '../services/api_service.dart';
+import '../services/pull_progress_service.dart';
 import '../models/server_config.dart';
 import 'onboarding_screen.dart';
 
@@ -31,12 +32,14 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    PullProgressService().init();
     ServerManager().onServerChanged = () {
         if (mounted) setState(() {
              // Rebuild to refresh screens that might depend on active server
         });
         // Also re-init socket
-        ApiService().initSocket();
+        ApiService().reinitSocket();
+        PullProgressService().init();
     };
   }
 

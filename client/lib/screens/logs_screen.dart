@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import '../widgets/responsive_layout.dart';
 import '../services/api_service.dart';
+import '../../widgets/square_scaling_spinner.dart';
 
 class LogsScreen extends StatefulWidget {
   final String containerId;
@@ -21,20 +22,14 @@ class _LogsScreenState extends State<LogsScreen> {
   @override
   void initState() {
     super.initState();
+    print('LogsScreen: initState for container ${widget.containerId}');
     _connectSocket();
   }
 
   void _connectSocket() {
-    // Use ApiService's socket as it already has correct config/headers/auth
-    // But we need to make sure we don't mess up other listeners if shared.
-    // ApiService creates a NEW socket instance in constructor, so it's safe to use this instance for this screen.
     socket = _apiService.socket;
 
-    socket.onConnect((_) {
-      print('Connected to socket');
-      socket.emit('subscribe_logs', widget.containerId);
-    });
-
+    // Register log listener first
     socket.on('log_chunk', (data) {
       if (mounted) {
         setState(() {
@@ -49,14 +44,17 @@ class _LogsScreenState extends State<LogsScreen> {
       }
     });
 
-    socket.onDisconnect((_) => print('Disconnected from socket'));
+    // Subscribe to logs for this container
+    print('LogsScreen: Subscribing to logs for ${widget.containerId}');
+    socket.emit('subscribe_logs', widget.containerId);
     
-    if (!socket.connected) {
-        socket.connect();
-    } else {
-        // If already connected (reused), emit immediately
-        socket.emit('subscribe_logs', widget.containerId);
-    }
+    // Also subscribe on reconnect
+    socket.onConnect((_) {
+      print('LogsScreen: Socket connected, resubscribing to logs');
+      socket.emit('subscribe_logs', widget.containerId);
+    });
+
+    socket.onDisconnect((_) => print('LogsScreen: Socket disconnected'));
   }
 
   void _scrollToBottom() {
@@ -71,7 +69,10 @@ class _LogsScreenState extends State<LogsScreen> {
 
   @override
   void dispose() {
-    socket.disconnect();
+    // Don't disconnect the socket - it's a singleton shared across all screens
+    // Just unsubscribe from logs for this container
+    socket.emit('unsubscribe_logs', widget.containerId);
+    socket.off('log_chunk'); // Remove this screen's listener
     _scrollController.dispose();
     super.dispose();
   }
@@ -103,9 +104,16 @@ class _LogsScreenState extends State<LogsScreen> {
         ),
         child: _logs.isEmpty
             ? const Center(
-                child: Text(
-                  'Waiting for logs...',
-                  style: TextStyle(color: Colors.white24),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SquareScalingSpinner(size: 40, color: Color(0xFF00E5FF)),
+                    SizedBox(height: 16),
+                    Text(
+                      'Waiting for logs...',
+                      style: TextStyle(color: Colors.white54, fontSize: 14),
+                    ),
+                  ],
                 ),
               )
             : ListView.builder(

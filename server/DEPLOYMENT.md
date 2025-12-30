@@ -12,7 +12,6 @@ This guide describes how to build and run the Container Control Server as a Dock
 Create a `.env` file in the `server` directory (or wherever you run the container) with your secret key:
 
 ```bash
-API_KEY=your_secret_key_at_least_12_chars
 ```
 
 ## 2. Build the Docker Image
@@ -53,7 +52,6 @@ docker run -d \
 - `--restart unless-stopped`: Auto-restart.
 - `-p 3000:3000`: Map port.
 - `-v /var/run/docker.sock:/var/run/docker.sock`: **Critical**. Access to host Docker.
-- `--env-file .env`: **Critical**. Loads the `API_KEY` from your local `.env` file into the container.
 
 ## 4. Verification
 

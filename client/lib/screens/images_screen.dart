@@ -25,6 +25,33 @@ class _ImagesScreenState extends State<ImagesScreen> {
   void initState() {
     super.initState();
     _refreshImages();
+    _setupSocketListeners();
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _apiService.socket.off('images_changed');
+    _apiService.socket.off('connect');
+    super.dispose();
+  }
+
+  void _setupSocketListeners() {
+    // Listen for image changes from server
+    _apiService.socket.on('images_changed', (_) {
+      if (mounted) {
+        print('Images changed event received, refreshing list...');
+        _refreshImages();
+      }
+    });
+    
+    // Listen for socket reconnection to auto-refresh
+    _apiService.socket.on('connect', (_) {
+      if (mounted) {
+        print('Socket reconnected, refreshing images...');
+        _refreshImages();
+      }
+    });
   }
 
   void _refreshImages() {
@@ -65,7 +92,7 @@ class _ImagesScreenState extends State<ImagesScreen> {
         if (mounted) {
           if (error != null) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Error: $error'), backgroundColor: Colors.redAccent),
+              SnackBar(content: Text(error!.replaceAll('Exception: ', '')), backgroundColor: Colors.redAccent),
             );
           } else {
              ScaffoldMessenger.of(context).showSnackBar(
@@ -270,7 +297,32 @@ class _ImagesScreenState extends State<ImagesScreen> {
                   );
                 }
                 if (snapshot.hasError) {
-                  return Center(child: Text('Error: ${snapshot.error}'));
+                  // Show toast notification for connection error
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text('Cannot connect to server. Check your server now.'),
+                          backgroundColor: Colors.redAccent,
+                          behavior: SnackBarBehavior.floating,
+                        ),
+                      );
+                    }
+                  });
+                  // Show empty state instead of error
+                  return const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.cloud_off, size: 64, color: Colors.white24),
+                        SizedBox(height: 16),
+                        Text(
+                          'Connection Error',
+                          style: TextStyle(color: Colors.white54, fontSize: 16),
+                        ),
+                      ],
+                    ),
+                  );
                 }
                 if (!snapshot.hasData || snapshot.data!.isEmpty) {
                   return const Center(
