@@ -88,11 +88,50 @@ app.post('/create', async (req, res) => {
             }
         }
 
-        const container = await docker.createContainer({ name: containerName, ...config });
+        let container;
+        try {
+            container = await docker.createContainer({ name: containerName, ...config });
+        } catch (error) {
+            // Check for "No such image" error (404)
+            if (error.statusCode === 404 && error.message.includes('No such image')) {
+                console.log(`Container Service: Image ${image} not found. Pulling...`);
+                emit('docker_pull_start', { image });
+
+                await new Promise((resolve, reject) => {
+                    docker.pull(image, (err, stream) => {
+                        if (err) return reject(err);
+
+                        // We use followProgress to wait for completion and emit progress
+                        docker.modem.followProgress(
+                            stream,
+                            (finishErr, output) => {
+                                if (finishErr) return reject(finishErr);
+                                emit('docker_pull_complete', { image, output });
+                                resolve(output);
+                            },
+                            (progressEvent) => {
+                                emit('docker_pull_progress', { image, event: progressEvent });
+                            }
+                        );
+                    });
+                });
+
+                // Retry creation
+                container = await docker.createContainer({ name: containerName, ...config });
+            } else {
+                throw error;
+            }
+        }
+
         if (autostart) await container.start();
 
         res.json({ message: 'Container created' + (autostart ? ' and started' : ''), id: container.id });
     } catch (error) {
+        if (error.statusCode === 404 && error.message.includes('No such image')) {
+            // If we failed after pull attempt or pull failed
+            console.error('Create error: Pull failed or image invalid', error);
+            emit('docker_pull_error', { image: req.body.image, error: error.message });
+        }
         console.error('Create error:', error);
         res.status(500).json({ error: error.message });
     }

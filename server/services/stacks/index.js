@@ -1,7 +1,7 @@
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
+const { exec, spawn } = require('child_process');
 const { emit } = require('../../shared/eventBus');
 const app = express();
 
@@ -21,6 +21,32 @@ const runCommand = (cmd, cwd) => {
                 return reject({ error, stderr });
             }
             resolve(stdout || stderr);
+        });
+    });
+};
+
+const runCommandStreaming = (cmd, args, cwd, stackName) => {
+    return new Promise((resolve, reject) => {
+        const child = spawn(cmd, args, { cwd, shell: true });
+
+        child.stdout.on('data', (data) => {
+            const line = data.toString();
+            // console.log(`[Stack ${stackName}]`, line);
+            emit('stack_log', { name: stackName, line });
+        });
+
+        child.stderr.on('data', (data) => {
+            const line = data.toString();
+            // console.error(`[Stack ${stackName} Err]`, line);
+            emit('stack_log', { name: stackName, line, isError: true });
+        });
+
+        child.on('close', (code) => {
+            if (code === 0) {
+                resolve();
+            } else {
+                reject(new Error(`Process exited with code ${code}`));
+            }
         });
     });
 };
@@ -79,7 +105,13 @@ app.delete('/:name', (req, res) => {
 
     (async () => {
         try {
+            // 1. Run docker compose down
+            emit('action_status', { type: 'info', message: `Bringing down stack ${name}...`, id: name });
+            await runCommandStreaming('docker compose', ['down', '--rmi', 'all', '--volumes', '--remove-orphans'], stackPath, name);
+
+            // 2. Remove directory
             fs.rmSync(stackPath, { recursive: true, force: true });
+
             emit('action_status', { type: 'success', message: `Stack deleted`, id: name });
             emit('stacks_changed');
         } catch (error) {
@@ -94,14 +126,20 @@ app.post('/:name/up', (req, res) => {
     const stackPath = path.join(STACKS_DIR, name);
     if (!fs.existsSync(stackPath)) return res.status(404).json({ error: 'Stack not found' });
 
-    res.json({ message: 'Stack up action queuing...' });
+    res.json({ message: 'Stack up action initiated' });
 
     (async () => {
         try {
-            await runCommand('docker compose up -d', stackPath);
+            emit('stack_log', { name, line: 'Starting deployment...' });
+            await runCommandStreaming('docker compose', ['up', '-d'], stackPath, name);
+
+            emit('stack_log', { name, line: 'Deployment successful!' });
             emit('action_status', { type: 'success', message: `Stack started`, id: name });
+            emit('stack_action_complete', { name, success: true, action: 'up' });
         } catch (err) {
+            emit('stack_log', { name, line: `Deployment failed: ${err.message}`, isError: true });
             emit('action_status', { type: 'error', message: `Stack up failed: ${err.message}`, id: name });
+            emit('stack_action_complete', { name, success: false, action: 'up', error: err.message });
         }
     })();
 });
@@ -116,10 +154,17 @@ app.post('/:name/down', (req, res) => {
 
     (async () => {
         try {
-            await runCommand('docker compose down', stackPath);
+            emit('stack_log', { name, line: 'Stopping stack...' });
+            await runCommandStreaming('docker compose', ['down'], stackPath, name);
+
+            emit('stack_log', { name, line: 'Stack stopped successfully.' });
             emit('action_status', { type: 'success', message: `Stack stopped`, id: name });
+            emit('stack_action_complete', { name, success: true, action: 'down' });
         } catch (err) {
+            console.error(err);
+            emit('stack_log', { name, line: `Stop failed: ${err.message}`, isError: true });
             emit('action_status', { type: 'error', message: `Stack down failed: ${err.message}`, id: name });
+            emit('stack_action_complete', { name, success: false, action: 'down', error: err.message });
         }
     })();
 });

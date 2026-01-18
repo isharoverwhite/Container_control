@@ -35,7 +35,15 @@ export default function ContainerTerminal({ containerId, secretKey }: ContainerT
         const fitAddon = new FitAddon();
         term.loadAddon(fitAddon);
         term.open(terminalRef.current);
-        fitAddon.fit();
+
+        // Initial fit with safety check
+        setTimeout(() => {
+            try {
+                fitAddon.fit();
+            } catch (e) {
+                console.log('Terminal fit skipped (likely hidden)');
+            }
+        }, 50);
 
         xtermRef.current = term;
         fitAddonRef.current = fitAddon;
@@ -76,10 +84,14 @@ export default function ContainerTerminal({ containerId, secretKey }: ContainerT
 
         // Handle window resize
         const handleResize = () => {
-            fitAddon.fit();
-            if (ws.readyState === WebSocket.OPEN) {
-                const { rows, cols } = term;
-                ws.send(JSON.stringify({ type: 'resize', rows, cols }));
+            try {
+                fitAddon.fit();
+                if (ws.readyState === WebSocket.OPEN) {
+                    const { rows, cols } = term;
+                    ws.send(JSON.stringify({ type: 'resize', rows, cols }));
+                }
+            } catch (e) {
+                // Ignore resize errors if terminal is hidden
             }
         };
 

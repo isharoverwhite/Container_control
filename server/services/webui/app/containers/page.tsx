@@ -4,13 +4,15 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/AuthContext';
 import { fetchApi } from '@/lib/api';
 import { motion } from 'framer-motion';
-import { Play, Square, Trash2, Box, RefreshCw, Eye } from 'lucide-react';
+import { Play, Square, Trash2, Box, RefreshCw, Eye, Plus } from 'lucide-react';
 import clsx from 'clsx';
+import CreateContainerModal from '@/components/CreateContainerModal';
 
 export default function ContainersPage() {
     const { secretKey } = useAuth();
     const [containers, setContainers] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
+    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
 
     const load = async (silent = false) => {
         try {
@@ -68,8 +70,11 @@ export default function ContainersPage() {
                         onChange={(e) => setSearchTerm(e.target.value)}
                         className="flex-1 md:w-64 px-4 py-2 bg-card border border-border rounded-lg focus:border-accent outline-none text-white text-sm"
                     />
+                    <button onClick={() => setIsCreateModalOpen(true)} className="px-4 py-2 bg-accent hover:bg-cyan-400 text-black font-semibold rounded-lg transition-colors flex items-center gap-2 text-sm">
+                        <Plus size={16} /> Create
+                    </button>
                     <button onClick={() => load()} className="px-4 py-2 bg-card border border-border rounded-lg hover:bg-white/5 transition-colors flex items-center gap-2 text-sm">
-                        <RefreshCw size={14} /> Refresh
+                        <RefreshCw size={14} />
                     </button>
                 </div>
             </div>
@@ -148,6 +153,12 @@ export default function ContainersPage() {
                     </table>
                 </div>
             </div>
+
+            <CreateContainerModal
+                isOpen={isCreateModalOpen}
+                onClose={() => setIsCreateModalOpen(false)}
+                onSuccess={() => load()}
+            />
         </div>
     );
 }

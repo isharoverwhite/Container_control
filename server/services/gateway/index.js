@@ -564,13 +564,9 @@ Object.entries(services).forEach(([route, target]) => {
     app.use(route, createProxyMiddleware({
         target,
         changeOrigin: true,
-        changeOrigin: true,
-        // ws: true, // Disabled to prevent MaxListenersExceeded (Gateway handles WS now)
+        // Only enable WS proxy for specific routes that need it (like terminal exec)
+        ws: route === '/api/containers',
         pathRewrite: {
-            // Keep the path as is, the services should handle /api/resource or we strip it?
-            // Usually simpler to strip /api/resource or keep it.
-            // Let's decide: Services will be mounted on root '/' but represent the resource.
-            // So /api/containers -> localhost:3001/
             [`^${route}`]: '',
         },
         onError: (err, req, res) => {
