@@ -251,16 +251,47 @@ io.on('connection', (socket) => {
 
 // --- Device Management & Logging ---
 const LOG_FILE = path.join(__dirname, '../../connection_logs.csv');
+const SETTINGS_FILE = path.join(__dirname, '../../server_settings.json');
 
 // Initialize CSV if needed
 if (!fs.existsSync(LOG_FILE)) {
     fs.writeFileSync(LOG_FILE, 'Timestamp,DeviceName,DeviceID,IP,Status\n');
 }
 
-
-
 // --- Auth Middleware (Moved Up) ---
 let approvalMode = false; // "Approval Mode" feature
+
+// Load Settings
+const loadSettings = () => {
+    try {
+        if (fs.existsSync(SETTINGS_FILE)) {
+            const data = fs.readFileSync(SETTINGS_FILE, 'utf8');
+            const settings = JSON.parse(data);
+            if (settings.approvalMode !== undefined) {
+                approvalMode = settings.approvalMode;
+                console.log(`Gateway: Loaded settings - Approval Mode: ${approvalMode}`);
+            }
+        } else {
+            // First time / No settings file
+            // Default is already false, but let's save it strictly or just leave it default
+            console.log('Gateway: No settings file found. Using defaults (Approval Mode: false).');
+        }
+    } catch (e) {
+        console.error('Gateway: Failed to load settings:', e.message);
+    }
+};
+
+const saveSettings = () => {
+    try {
+        const settings = { approvalMode };
+        fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+        console.log('Gateway: Settings saved.');
+    } catch (e) {
+        console.error('Gateway: Failed to save settings:', e.message);
+    }
+};
+
+loadSettings();
 
 const authMiddleware = (req, res, next) => {
     const secretKey = process.env.SECRET_KEY;
@@ -391,6 +422,7 @@ app.post('/api/devices/settings', express.json(), (req, res) => {
     const { enabled } = req.body;
     if (typeof enabled === 'boolean') {
         approvalMode = enabled;
+        saveSettings(); // Save to file
         console.log(`Gateway: Approval Mode set to ${enabled}`);
     }
     res.json({ approvalMode });
@@ -407,6 +439,11 @@ app.post('/api/devices/approve', express.json(), (req, res) => {
         console.log(`Gateway: Approved device ${ip}`);
     }
     res.json({ status: 'approved' });
+});
+
+app.get('/api/auth/verify', (req, res) => {
+    // If we reached here, Auth Middleware passed
+    res.json({ status: 'ok' });
 });
 
 app.post('/api/devices/block', express.json(), (req, res) => {

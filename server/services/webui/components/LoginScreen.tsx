@@ -23,14 +23,19 @@ export default function LoginScreen() {
 
         try {
             // Verify key by making a lightweight API call
-            const res = await fetch(`${API_URL}/system/info`, {
+            // Changed from /system/info (depends on Docker) to /auth/verify (Gateway only)
+            const res = await fetch(`${API_URL}/auth/verify`, {
                 headers: { 'x-secret-key': key }
             });
 
             if (res.ok) {
                 setSecretKey(key);
             } else {
-                setError('Invalid Secret Key');
+                if (res.status === 403 || res.status === 401) {
+                    setError('Invalid Secret Key');
+                } else {
+                    setError(`Server Error (${res.status}): Please check server logs`);
+                }
             }
         } catch (e: any) {
             setError(`Connection failed: ${e.message || e}`);
